@@ -5,14 +5,15 @@
     box-sizing: border-box;
   }
   
-  body {
+  html, body {
     margin: 0;
     padding: 0;
+    height: 100%;
+    width: 100%;
     overflow: hidden;
-    user-select: none;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, Helvetica, Arial, sans-serif;
   }
 
   input, textarea, [contenteditable="true"] {
@@ -20,29 +21,63 @@
   }
 }
 
-/* Custom canvas dot grid */
+/* Premium Radial Dot Grids */
 .canvas-grid-dots {
-  background-image: radial-gradient(rgba(100, 116, 139, 0.25) 1.2px, transparent 1.2px);
+  background-image: radial-gradient(rgba(148, 163, 184, 0.35) 1px, transparent 1px);
   background-size: 24px 24px;
 }
 
 .canvas-grid-dots-dark {
-  background-image: radial-gradient(rgba(148, 163, 184, 0.22) 1.2px, transparent 1.2px);
+  background-image: radial-gradient(rgba(255, 255, 255, 0.12) 1px, transparent 1px);
   background-size: 24px 24px;
 }
 
-/* Custom scrollbars */
+/* Glassmorphism surfaces */
+.glass-panel {
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+/* Designer shadows & glows */
+.card-shadow {
+  box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.05), 0 2px 6px -1px rgba(0, 0, 0, 0.03);
+}
+
+.card-shadow-dark {
+  box-shadow: 0 8px 30px -4px rgba(0, 0, 0, 0.5), 0 2px 10px -2px rgba(0, 0, 0, 0.4);
+}
+
+.card-shadow-hover {
+  box-shadow: 0 14px 38px -4px rgba(0, 0, 0, 0.1), 0 4px 14px -2px rgba(0, 0, 0, 0.05);
+}
+
+.glow-indigo {
+  box-shadow: 0 0 25px -4px rgba(99, 102, 241, 0.4);
+}
+
+/* Custom refined scrollbars */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.4);
+  background: rgba(148, 163, 184, 0.3);
   border-radius: 9999px;
+  transition: background 0.2s ease;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(148, 163, 184, 0.7);
+  background: rgba(148, 163, 184, 0.6);
+}
+
+/* Animation utilities */
+@keyframes pulseSubtle {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.85; transform: scale(0.99); }
+}
+
+.animate-subtle {
+  animation: pulseSubtle 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }

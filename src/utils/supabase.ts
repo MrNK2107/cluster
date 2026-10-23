@@ -1,27 +1,24 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import type { WorkspaceData } from '../types';
 
-const DEFAULT_SUPABASE_URL = 'https://YOUR-PROJECT.supabase.co';
-const DEFAULT_SUPABASE_ANON_KEY = '';
-
 const STORAGE_SUPABASE_URL_KEY = 'clustr_supabase_url';
 const STORAGE_SUPABASE_KEY_KEY = 'clustr_supabase_anon_key';
 
 let supabaseInstance: SupabaseClient | null = null;
 
 export function getSupabaseCredentials(): { url: string; key: string } {
-  const envUrl = import.meta.env.VITE_SUPABASE_URL || '';
-  const envKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+  const envUrl = (import.meta as any).env?.VITE_SUPABASE_URL || '';
+  const envKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || '';
 
-  const localUrl = localStorage.getItem(STORAGE_SUPABASE_URL_KEY) || envUrl || DEFAULT_SUPABASE_URL;
-  const localKey = localStorage.getItem(STORAGE_SUPABASE_KEY_KEY) || envKey || DEFAULT_SUPABASE_ANON_KEY;
+  const localUrl = localStorage.getItem(STORAGE_SUPABASE_URL_KEY) || envUrl;
+  const localKey = localStorage.getItem(STORAGE_SUPABASE_KEY_KEY) || envKey;
 
-  return { url: localUrl, key: localKey };
+  return { url: localUrl.trim(), key: localKey.trim() };
 }
 
 export function saveSupabaseCredentials(url: string, key: string): void {
-  localStorage.setItem(STORAGE_SUPABASE_URL_KEY, url);
-  localStorage.setItem(STORAGE_SUPABASE_KEY_KEY, key);
+  localStorage.setItem(STORAGE_SUPABASE_URL_KEY, url.trim());
+  localStorage.setItem(STORAGE_SUPABASE_KEY_KEY, key.trim());
   supabaseInstance = null; // reset client instance
 }
 
@@ -48,7 +45,7 @@ export function getSupabaseClient(): SupabaseClient | null {
 
 export async function fetchCloudWorkspace(): Promise<{ data: WorkspaceData | null; error?: string }> {
   const client = getSupabaseClient();
-  if (!client) return { data: null, error: 'Supabase not configured' };
+  if (!client) return { data: null, error: 'Supabase credentials not configured' };
 
   try {
     const { data: { user } } = await client.auth.getUser();
@@ -75,7 +72,7 @@ export async function fetchCloudWorkspace(): Promise<{ data: WorkspaceData | nul
 
 export async function syncWorkspaceToSupabase(workspace: WorkspaceData): Promise<{ success: boolean; error?: string }> {
   const client = getSupabaseClient();
-  if (!client) return { success: false, error: 'Supabase not configured' };
+  if (!client) return { success: false, error: 'Supabase credentials not configured' };
 
   try {
     const { data: { user } } = await client.auth.getUser();
@@ -98,7 +95,7 @@ export async function syncWorkspaceToSupabase(workspace: WorkspaceData): Promise
   }
 }
 
-export const SUPABASE_SQL_SETUP = `-- Run this in your Supabase SQL Editor:
+export const SUPABASE_SQL_SETUP = `-- Run this once in your Supabase SQL Editor:
 create table if not exists public.workspaces (
   user_id uuid primary key references auth.users(id) on delete cascade,
   data jsonb not null,
