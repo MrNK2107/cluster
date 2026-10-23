@@ -5,29 +5,88 @@ import type {
   CardData, 
   Cluster, 
   Connection, 
-  CardType 
+  CardType,
+  CardColor 
 } from './types';
 import { 
-  loadWorkspace, 
-  saveWorkspace, 
-  exportWorkspaceJSON, 
-  INITIAL_DOCUMENTS 
+  loadWorkspaceFromDB, 
+  saveWorkspaceToDB 
+} from './utils/db';
+import { 
+  INITIAL_DOCUMENTS, 
+  exportWorkspaceJSON 
 } from './utils/storage';
+import { 
+  getSupabaseClient, 
+  fetchCloudWorkspace, 
+  syncWorkspaceToSupabase 
+} from './utils/supabase';
 import { Sidebar } from './components/Sidebar';
 import { TopBar } from './components/TopBar';
 import { Canvas } from './components/Canvas';
+import { MobileFeedView } from './components/MobileFeedView';
+import { MobileQuickAddSheet } from './components/MobileQuickAddSheet';
 import { ShareModal } from './components/ShareModal';
 import { TemplatesModal } from './components/TemplatesModal';
+import { SupabaseModal } from './components/SupabaseModal';
+import { Plus, FileText, Map, LayoutGrid } from 'lucide-react';
 
 export const App: React.FC = () => {
-  const [workspace, setWorkspace] = useState<WorkspaceData>(() => loadWorkspace());
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [workspace, setWorkspace] = useState<WorkspaceData>({
+    version: 1,
+    activeDocId: INITIAL_DOCUMENTS[0].id,
+    documents: INITIAL_DOCUMENTS,
+    theme: 'dark',
+  });
+
+  // Mobile-first view mode: default to 'feed' on mobile, 'canvas' on larger screens
+  const [viewMode, setViewMode] = useState<'canvas' | 'feed'>(() => {
+    return typeof window !== 'undefined' && window.innerWidth < 768 ? 'feed' : 'canvas';
+  });
+
+  const [sidebarOpen, setSidebarOpen] = useState(() => {
+    return typeof window !== 'undefined' && window.innerWidth >= 768;
+  });
+
   const [connectMode, setConnectMode] = useState(false);
   const [activeTagFilter, setActiveTagFilter] = useState<string | null>(null);
   const [shareModalOpen, setShareModalOpen] = useState(false);
   const [templatesModalOpen, setTemplatesModalOpen] = useState(false);
+  const [supabaseModalOpen, setSupabaseModalOpen] = useState(false);
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
+  const [quickAddType, setQuickAddType] = useState<CardType>('todo');
+  const [quickAddClusterId, setQuickAddClusterId] = useState<string | null>(null);
 
-  // Check URL hash for shared document snapshot
+  const [isCloudSynced, setIsCloudSynced] = useState(false);
+
+  // Load from IndexedDB on initial mount
+  useEffect(() => {
+    async function initDB() {
+      const stored = await loadWorkspaceFromDB();
+      if (stored) {
+        setWorkspace(stored);
+      }
+      // Check Supabase status
+      checkSupabase();
+    }
+    initDB();
+  }, []);
+
+  const checkSupabase = async () => {
+    const client = getSupabaseClient();
+    if (client) {
+      try {
+        const { data: { user } } = await client.auth.getUser();
+        setIsCloudSynced(!!user);
+      } catch (e) {
+        setIsCloudSynced(false);
+      }
+    } else {
+      setIsCloudSynced(false);
+    }
+  };
+
+  // URL Hash document snapshot check
   useEffect(() => {
     if (window.location.hash.startsWith('#doc=')) {
       try {
@@ -35,7 +94,6 @@ export const App: React.FC = () => {
         const jsonStr = decodeURIComponent(atob(encoded));
         const sharedDoc: BoardDocument = JSON.parse(jsonStr);
         if (sharedDoc && sharedDoc.id) {
-          // Add as new or overwrite
           setWorkspace((prev) => {
             const exists = prev.documents.some((d) => d.id === sharedDoc.id);
             const updatedDocs = exists
@@ -47,7 +105,6 @@ export const App: React.FC = () => {
               documents: updatedDocs,
             };
           });
-          // Clear hash to prevent duplicate prompt on reload
           window.history.replaceState(null, '', window.location.pathname);
         }
       } catch (e) {
@@ -56,12 +113,12 @@ export const App: React.FC = () => {
     }
   }, []);
 
-  // Save changes to localStorage
+  // Save changes to IndexedDB
   useEffect(() => {
-    saveWorkspace(workspace);
+    saveWorkspaceToDB(workspace);
   }, [workspace]);
 
-  // Sync Dark/Light theme class to html root
+  // Sync Dark/Light theme class
   useEffect(() => {
     if (workspace.theme === 'dark') {
       document.documentElement.classList.add('dark');
@@ -70,7 +127,7 @@ export const App: React.FC = () => {
     }
   }, [workspace.theme]);
 
-  // Get active document
+  // Active document
   const activeDocument = useMemo(() => {
     return (
       workspace.documents.find((d) => d.id === workspace.activeDocId) ||
@@ -79,7 +136,7 @@ export const App: React.FC = () => {
     );
   }, [workspace.documents, workspace.activeDocId]);
 
-  // Extract all unique tags across cards in active document
+  // Unique tags
   const allTags = useMemo(() => {
     const set = new Set<string>();
     activeDocument.cards.forEach((c) => {
@@ -88,7 +145,7 @@ export const App: React.FC = () => {
     return Array.from(set);
   }, [activeDocument.cards]);
 
-  // Helper to update active document in workspace
+  // Helper to update active document
   const updateActiveDocument = (updater: (doc: BoardDocument) => BoardDocument) => {
     setWorkspace((prev) => {
       const updatedDocs = prev.documents.map((doc) => {
@@ -106,12 +163,11 @@ export const App: React.FC = () => {
 
   // Card Handlers
   const handleAddCard = (type: CardType) => {
-    // Spawn card in center of current viewport
     const vp = activeDocument.viewport;
     const spawnX = Math.round((-vp.x + 300) / vp.zoom);
     const spawnY = Math.round((-vp.y + 200) / vp.zoom);
 
-    const defaultColor = type === 'todo' ? 'blue' : type === 'note' ? 'green' : type === 'sticky' ? 'yellow' : 'pink';
+    const defaultColor: CardColor = type === 'todo' ? 'blue' : type === 'note' ? 'green' : type === 'sticky' ? 'yellow' : 'pink';
 
     const newCard: CardData = {
       id: `card-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
@@ -123,7 +179,7 @@ export const App: React.FC = () => {
       color: defaultColor,
       tags: [],
       todos: type === 'todo' ? [
-        { id: `t-${Date.now()}`, text: 'First item to get done', completed: false, priority: 'medium' }
+        { id: `t-${Date.now()}`, text: 'First task to complete', completed: false, priority: 'medium' }
       ] : undefined,
       noteContent: type === 'note' ? '' : type === 'sticky' ? '' : undefined,
       counterValue: type === 'counter' ? 0 : undefined,
@@ -143,7 +199,6 @@ export const App: React.FC = () => {
     const cluster = activeDocument.clusters.find((c) => c.id === clusterId);
     if (!cluster) return;
 
-    // Position card nicely inside cluster
     const clusterCards = activeDocument.cards.filter((c) => c.clusterId === clusterId);
     const cardY = cluster.y + 60 + clusterCards.length * 90;
 
@@ -157,6 +212,36 @@ export const App: React.FC = () => {
       color: cluster.color,
       tags: [],
       todos: type === 'todo' ? [{ id: `t-${Date.now()}`, text: 'New item', completed: false }] : undefined,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    updateActiveDocument((doc) => ({
+      ...doc,
+      cards: [...doc.cards, newCard],
+    }));
+  };
+
+  const handleAddCardFromQuickSheet = (params: {
+    type: CardType;
+    title: string;
+    content: string;
+    clusterId: string | null;
+    color: CardColor;
+  }) => {
+    const newCard: CardData = {
+      id: `card-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+      clusterId: params.clusterId,
+      type: params.type,
+      title: params.title,
+      x: 100,
+      y: 100,
+      color: params.color,
+      tags: [],
+      todos: params.type === 'todo' ? [
+        { id: `t-${Date.now()}`, text: params.content || 'First item', completed: false }
+      ] : undefined,
+      noteContent: params.type !== 'todo' ? params.content : undefined,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -233,7 +318,6 @@ export const App: React.FC = () => {
   };
 
   const handleDeleteCluster = (id: string) => {
-    // Delete cluster container but detach contained cards so user doesn't accidentally lose work!
     updateActiveDocument((doc) => ({
       ...doc,
       clusters: doc.clusters.filter((cl) => cl.id !== id),
@@ -288,60 +372,23 @@ export const App: React.FC = () => {
     });
   };
 
-  // Workspace Document Operations
-  const handleSelectDocument = (id: string) => {
-    setWorkspace((prev) => ({ ...prev, activeDocId: id }));
+  // Supabase Cloud Sync
+  const handleSyncPushToSupabase = async () => {
+    const res = await syncWorkspaceToSupabase(workspace);
+    if (!res.success) {
+      throw new Error(res.error || 'Failed to sync');
+    }
+    setIsCloudSynced(true);
   };
 
-  const handleDuplicateDocument = (id: string) => {
-    const doc = workspace.documents.find((d) => d.id === id);
-    if (!doc) return;
-
-    const dup: BoardDocument = {
-      ...doc,
-      id: `doc-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
-      title: `${doc.title} (Copy)`,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    };
-
-    setWorkspace((prev) => ({
-      ...prev,
-      documents: [...prev.documents, dup],
-      activeDocId: dup.id,
-    }));
-  };
-
-  const handleDeleteDocument = (id: string) => {
-    if (workspace.documents.length <= 1) return;
-    const remaining = workspace.documents.filter((d) => d.id !== id);
-    setWorkspace((prev) => ({
-      ...prev,
-      documents: remaining,
-      activeDocId: remaining[0].id,
-    }));
-  };
-
-  const handleImportBackup = (file: File) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const parsed = JSON.parse(e.target?.result as string);
-        if (parsed.documents && Array.isArray(parsed.documents)) {
-          setWorkspace(parsed);
-        } else if (parsed.clusters && parsed.cards) {
-          // It's a single document
-          setWorkspace((prev) => ({
-            ...prev,
-            documents: [parsed, ...prev.documents],
-            activeDocId: parsed.id,
-          }));
-        }
-      } catch (err) {
-        alert('Could not parse backup JSON file.');
-      }
-    };
-    reader.readAsText(file);
+  const handleSyncPullFromSupabase = async () => {
+    const res = await fetchCloudWorkspace();
+    if (res.data) {
+      setWorkspace(res.data);
+      setIsCloudSynced(true);
+    } else {
+      throw new Error(res.error || 'No remote workspace found');
+    }
   };
 
   return (
@@ -351,25 +398,63 @@ export const App: React.FC = () => {
         isOpen={sidebarOpen}
         documents={workspace.documents}
         activeDocId={workspace.activeDocId}
-        onSelectDocument={handleSelectDocument}
+        onSelectDocument={(id) => setWorkspace((prev) => ({ ...prev, activeDocId: id }))}
         onCreateDocument={() => setTemplatesModalOpen(true)}
-        onDuplicateDocument={handleDuplicateDocument}
-        onDeleteDocument={handleDeleteDocument}
+        onDuplicateDocument={(id) => {
+          const doc = workspace.documents.find((d) => d.id === id);
+          if (!doc) return;
+          const dup: BoardDocument = {
+            ...doc,
+            id: `doc-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+            title: `${doc.title} (Copy)`,
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          };
+          setWorkspace((prev) => ({
+            ...prev,
+            documents: [...prev.documents, dup],
+            activeDocId: dup.id,
+          }));
+        }}
+        onDeleteDocument={(id) => {
+          if (workspace.documents.length <= 1) return;
+          const remaining = workspace.documents.filter((d) => d.id !== id);
+          setWorkspace((prev) => ({
+            ...prev,
+            documents: remaining,
+            activeDocId: remaining[0].id,
+          }));
+        }}
         onExportAll={() => exportWorkspaceJSON(workspace)}
-        onImportBackup={handleImportBackup}
+        onImportBackup={(file) => {
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            try {
+              const parsed = JSON.parse(e.target?.result as string);
+              if (parsed.documents && Array.isArray(parsed.documents)) {
+                setWorkspace(parsed);
+              }
+            } catch (err) {
+              alert('Could not parse backup JSON file.');
+            }
+          };
+          reader.readAsText(file);
+        }}
         onCloseMobile={() => setSidebarOpen(false)}
       />
 
-      {/* Main Content Area */}
+      {/* Main App Container */}
       <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden relative">
-        {/* Top Navigation Bar */}
+        {/* Responsive Header */}
         <TopBar
           document={activeDocument}
           theme={workspace.theme as 'dark' | 'light'}
+          viewMode={viewMode}
           connectMode={connectMode}
           activeTagFilter={activeTagFilter}
           allTags={allTags}
           zoom={activeDocument.viewport.zoom}
+          isCloudSynced={isCloudSynced}
           onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
           onToggleTheme={() =>
             setWorkspace((prev) => ({
@@ -377,6 +462,7 @@ export const App: React.FC = () => {
               theme: prev.theme === 'dark' ? 'light' : 'dark',
             }))
           }
+          onToggleViewMode={() => setViewMode(viewMode === 'feed' ? 'canvas' : 'feed')}
           onToggleConnectMode={() => setConnectMode(!connectMode)}
           onSelectTagFilter={setActiveTagFilter}
           onAddCard={handleAddCard}
@@ -385,30 +471,105 @@ export const App: React.FC = () => {
           onZoomOut={() => handleZoom(-0.15)}
           onResetZoom={handleResetZoom}
           onOpenShareModal={() => setShareModalOpen(true)}
+          onOpenSupabaseModal={() => setSupabaseModalOpen(true)}
           onUpdateDocTitle={(title) => updateActiveDocument((doc) => ({ ...doc, title }))}
         />
 
-        {/* Spatial Canvas */}
-        <div className="flex-1 w-full h-full relative overflow-hidden">
-          <Canvas
-            cards={activeDocument.cards}
-            clusters={activeDocument.clusters}
-            connections={activeDocument.connections}
-            viewport={activeDocument.viewport}
-            activeTagFilter={activeTagFilter}
-            connectMode={connectMode}
-            onUpdateViewport={handleUpdateViewport}
-            onUpdateCard={handleUpdateCard}
-            onDeleteCard={handleDeleteCard}
-            onDuplicateCard={handleDuplicateCard}
-            onUpdateCluster={handleUpdateCluster}
-            onDeleteCluster={handleDeleteCluster}
-            onAddCardInsideCluster={handleAddCardInsideCluster}
-            onDeleteConnection={handleDeleteConnection}
-            onAddConnection={handleAddConnection}
-          />
-        </div>
+        {/* Workspace Body: Mobile-First Feed View OR Spatial Canvas View */}
+        <main className="flex-1 w-full h-full relative overflow-hidden">
+          {viewMode === 'feed' ? (
+            <MobileFeedView
+              document={activeDocument}
+              activeTagFilter={activeTagFilter}
+              onUpdateCard={handleUpdateCard}
+              onDeleteCard={handleDeleteCard}
+              onUpdateCluster={handleUpdateCluster}
+              onDeleteCluster={handleDeleteCluster}
+              onOpenQuickAdd={(type, clusterId) => {
+                setQuickAddType(type);
+                setQuickAddClusterId(clusterId || null);
+                setQuickAddOpen(true);
+              }}
+            />
+          ) : (
+            <Canvas
+              cards={activeDocument.cards}
+              clusters={activeDocument.clusters}
+              connections={activeDocument.connections}
+              viewport={activeDocument.viewport}
+              activeTagFilter={activeTagFilter}
+              connectMode={connectMode}
+              onUpdateViewport={handleUpdateViewport}
+              onUpdateCard={handleUpdateCard}
+              onDeleteCard={handleDeleteCard}
+              onDuplicateCard={handleDuplicateCard}
+              onUpdateCluster={handleUpdateCluster}
+              onDeleteCluster={handleDeleteCluster}
+              onAddCardInsideCluster={handleAddCardInsideCluster}
+              onDeleteConnection={handleDeleteConnection}
+              onAddConnection={handleAddConnection}
+            />
+          )}
+
+          {/* Mobile Bottom Thumb-Zone Floating Action Bar */}
+          <div className="md:hidden fixed bottom-4 left-4 right-4 z-40 flex items-center justify-between pointer-events-none select-none">
+            {/* View switcher pill */}
+            <button
+              onClick={() => setViewMode(viewMode === 'feed' ? 'canvas' : 'feed')}
+              className="pointer-events-auto flex items-center gap-1.5 px-3.5 py-2.5 rounded-full bg-slate-900/90 dark:bg-slate-100/90 text-white dark:text-slate-900 backdrop-blur-md shadow-xl text-xs font-bold transition-transform active:scale-95"
+            >
+              {viewMode === 'feed' ? <Map className="w-4 h-4 text-indigo-400 dark:text-indigo-600" /> : <LayoutGrid className="w-4 h-4 text-emerald-400 dark:text-emerald-600" />}
+              <span>{viewMode === 'feed' ? 'Canvas' : 'Feed'}</span>
+            </button>
+
+            {/* Quick Add Buttons */}
+            <div className="pointer-events-auto flex items-center gap-2">
+              <button
+                onClick={() => {
+                  setQuickAddType('note');
+                  setQuickAddClusterId(null);
+                  setQuickAddOpen(true);
+                }}
+                className="w-11 h-11 rounded-full bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 shadow-xl flex items-center justify-center transition-transform active:scale-95"
+                title="Quick Note"
+              >
+                <FileText className="w-5 h-5 text-emerald-500" />
+              </button>
+
+              <button
+                onClick={() => {
+                  setQuickAddType('todo');
+                  setQuickAddClusterId(null);
+                  setQuickAddOpen(true);
+                }}
+                className="flex items-center gap-1.5 px-4 py-2.5 rounded-full bg-indigo-600 text-white shadow-xl text-xs font-bold transition-transform active:scale-95 hover:bg-indigo-700"
+                title="Add Task List"
+              >
+                <Plus className="w-4 h-4" />
+                <span>+ Todo</span>
+              </button>
+            </div>
+          </div>
+        </main>
       </div>
+
+      {/* Mobile Quick Add Bottom Sheet */}
+      <MobileQuickAddSheet
+        isOpen={quickAddOpen}
+        initialType={quickAddType}
+        initialClusterId={quickAddClusterId}
+        clusters={activeDocument.clusters}
+        onClose={() => setQuickAddOpen(false)}
+        onAdd={handleAddCardFromQuickSheet}
+      />
+
+      {/* Supabase Free Cloud Storage & Auth Modal */}
+      <SupabaseModal
+        isOpen={supabaseModalOpen}
+        onClose={() => setSupabaseModalOpen(false)}
+        onSyncPush={handleSyncPushToSupabase}
+        onSyncPull={handleSyncPullFromSupabase}
+      />
 
       {/* Share / Export Modal */}
       <ShareModal
@@ -417,7 +578,7 @@ export const App: React.FC = () => {
         onClose={() => setShareModalOpen(false)}
       />
 
-      {/* Template & New Document Modal */}
+      {/* Templates Modal */}
       <TemplatesModal
         isOpen={templatesModalOpen}
         onClose={() => setTemplatesModalOpen(false)}
