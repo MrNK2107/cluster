@@ -29,6 +29,8 @@ import { MobileQuickAddSheet } from './components/MobileQuickAddSheet';
 import { ShareModal } from './components/ShareModal';
 import { TemplatesModal } from './components/TemplatesModal';
 import { SupabaseModal } from './components/SupabaseModal';
+import { CommandPalette } from './components/CommandPalette';
+import { MiniMap } from './components/MiniMap';
 import { Plus, FileText, Map, LayoutGrid } from 'lucide-react';
 
 export const App: React.FC = () => {
@@ -39,7 +41,6 @@ export const App: React.FC = () => {
     theme: 'dark',
   });
 
-  // Mobile-first view mode: default to 'feed' on mobile, 'canvas' on larger screens
   const [viewMode, setViewMode] = useState<'canvas' | 'feed'>(() => {
     return typeof window !== 'undefined' && window.innerWidth < 768 ? 'feed' : 'canvas';
   });
@@ -53,6 +54,8 @@ export const App: React.FC = () => {
   const [shareModalOpen, setShareModalOpen] = useState(false);
   const [templatesModalOpen, setTemplatesModalOpen] = useState(false);
   const [supabaseModalOpen, setSupabaseModalOpen] = useState(false);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [quickAddType, setQuickAddType] = useState<CardType>('todo');
   const [quickAddClusterId, setQuickAddClusterId] = useState<string | null>(null);
@@ -66,7 +69,6 @@ export const App: React.FC = () => {
       if (stored) {
         setWorkspace(stored);
       }
-      // Check Supabase status
       checkSupabase();
     }
     initDB();
@@ -85,6 +87,18 @@ export const App: React.FC = () => {
       setIsCloudSynced(false);
     }
   };
+
+  // Global keydown for Cmd+K / Ctrl+K
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setCommandPaletteOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   // URL Hash document snapshot check
   useEffect(() => {
@@ -145,7 +159,6 @@ export const App: React.FC = () => {
     return Array.from(set);
   }, [activeDocument.cards]);
 
-  // Helper to update active document
   const updateActiveDocument = (updater: (doc: BoardDocument) => BoardDocument) => {
     setWorkspace((prev) => {
       const updatedDocs = prev.documents.map((doc) => {
@@ -348,7 +361,7 @@ export const App: React.FC = () => {
     }));
   };
 
-  // Viewport / Zoom
+  // Viewport / Zoom / Pan
   const handleUpdateViewport = (vp: { x: number; y: number; zoom: number }) => {
     updateActiveDocument((doc) => ({
       ...doc,
@@ -372,6 +385,22 @@ export const App: React.FC = () => {
     });
   };
 
+  const handlePanTo = (newX: number, newY: number) => {
+    handleUpdateViewport({
+      ...activeDocument.viewport,
+      x: newX,
+      y: newY,
+    });
+  };
+
+  const handleFocusCard = (cardId: string) => {
+    const card = activeDocument.cards.find((c) => c.id === cardId);
+    if (!card) return;
+    const targetX = -(card.x * activeDocument.viewport.zoom - window.innerWidth / 2 + 160);
+    const targetY = -(card.y * activeDocument.viewport.zoom - window.innerHeight / 2 + 100);
+    handlePanTo(targetX, targetY);
+  };
+
   // Supabase Cloud Sync
   const handleSyncPushToSupabase = async () => {
     const res = await syncWorkspaceToSupabase(workspace);
@@ -392,12 +421,13 @@ export const App: React.FC = () => {
   };
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-slate-100 dark:bg-slate-950 text-slate-800 dark:text-slate-100 font-sans">
+    <div className="flex h-screen w-screen overflow-hidden bg-slate-50 dark:bg-[#0b0f17] text-slate-800 dark:text-slate-100 font-sans">
       {/* Sidebar */}
       <Sidebar
         isOpen={sidebarOpen}
         documents={workspace.documents}
         activeDocId={workspace.activeDocId}
+        isCloudSynced={isCloudSynced}
         onSelectDocument={(id) => setWorkspace((prev) => ({ ...prev, activeDocId: id }))}
         onCreateDocument={() => setTemplatesModalOpen(true)}
         onDuplicateDocument={(id) => {
@@ -440,12 +470,14 @@ export const App: React.FC = () => {
           };
           reader.readAsText(file);
         }}
+        onOpenCommandPalette={() => setCommandPaletteOpen(true)}
+        onOpenSupabase={() => setSupabaseModalOpen(true)}
         onCloseMobile={() => setSidebarOpen(false)}
       />
 
       {/* Main App Container */}
       <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden relative">
-        {/* Responsive Header */}
+        {/* Designer TopBar */}
         <TopBar
           document={activeDocument}
           theme={workspace.theme as 'dark' | 'light'}
@@ -453,7 +485,6 @@ export const App: React.FC = () => {
           connectMode={connectMode}
           activeTagFilter={activeTagFilter}
           allTags={allTags}
-          zoom={activeDocument.viewport.zoom}
           isCloudSynced={isCloudSynced}
           onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
           onToggleTheme={() =>
@@ -467,11 +498,9 @@ export const App: React.FC = () => {
           onSelectTagFilter={setActiveTagFilter}
           onAddCard={handleAddCard}
           onAddCluster={handleAddCluster}
-          onZoomIn={() => handleZoom(0.15)}
-          onZoomOut={() => handleZoom(-0.15)}
-          onResetZoom={handleResetZoom}
           onOpenShareModal={() => setShareModalOpen(true)}
           onOpenSupabaseModal={() => setSupabaseModalOpen(true)}
+          onOpenCommandPalette={() => setCommandPaletteOpen(true)}
           onUpdateDocTitle={(title) => updateActiveDocument((doc) => ({ ...doc, title }))}
         />
 
@@ -492,23 +521,36 @@ export const App: React.FC = () => {
               }}
             />
           ) : (
-            <Canvas
-              cards={activeDocument.cards}
-              clusters={activeDocument.clusters}
-              connections={activeDocument.connections}
-              viewport={activeDocument.viewport}
-              activeTagFilter={activeTagFilter}
-              connectMode={connectMode}
-              onUpdateViewport={handleUpdateViewport}
-              onUpdateCard={handleUpdateCard}
-              onDeleteCard={handleDeleteCard}
-              onDuplicateCard={handleDuplicateCard}
-              onUpdateCluster={handleUpdateCluster}
-              onDeleteCluster={handleDeleteCluster}
-              onAddCardInsideCluster={handleAddCardInsideCluster}
-              onDeleteConnection={handleDeleteConnection}
-              onAddConnection={handleAddConnection}
-            />
+            <>
+              <Canvas
+                cards={activeDocument.cards}
+                clusters={activeDocument.clusters}
+                connections={activeDocument.connections}
+                viewport={activeDocument.viewport}
+                activeTagFilter={activeTagFilter}
+                connectMode={connectMode}
+                onUpdateViewport={handleUpdateViewport}
+                onUpdateCard={handleUpdateCard}
+                onDeleteCard={handleDeleteCard}
+                onDuplicateCard={handleDuplicateCard}
+                onUpdateCluster={handleUpdateCluster}
+                onDeleteCluster={handleDeleteCluster}
+                onAddCardInsideCluster={handleAddCardInsideCluster}
+                onDeleteConnection={handleDeleteConnection}
+                onAddConnection={handleAddConnection}
+              />
+
+              {/* Designer MiniMap Radar */}
+              <MiniMap
+                cards={activeDocument.cards}
+                clusters={activeDocument.clusters}
+                viewport={activeDocument.viewport}
+                onPanTo={handlePanTo}
+                onZoomIn={() => handleZoom(0.15)}
+                onZoomOut={() => handleZoom(-0.15)}
+                onResetZoom={handleResetZoom}
+              />
+            </>
           )}
 
           {/* Mobile Bottom Thumb-Zone Floating Action Bar */}
@@ -516,7 +558,7 @@ export const App: React.FC = () => {
             {/* View switcher pill */}
             <button
               onClick={() => setViewMode(viewMode === 'feed' ? 'canvas' : 'feed')}
-              className="pointer-events-auto flex items-center gap-1.5 px-3.5 py-2.5 rounded-full bg-slate-900/90 dark:bg-slate-100/90 text-white dark:text-slate-900 backdrop-blur-md shadow-xl text-xs font-bold transition-transform active:scale-95"
+              className="pointer-events-auto flex items-center gap-1.5 px-4 py-2.5 rounded-full bg-slate-900/95 dark:bg-white/95 text-white dark:text-slate-900 backdrop-blur-xl shadow-2xl text-xs font-bold transition-transform active:scale-95 border border-white/10 dark:border-black/10"
             >
               {viewMode === 'feed' ? <Map className="w-4 h-4 text-indigo-400 dark:text-indigo-600" /> : <LayoutGrid className="w-4 h-4 text-emerald-400 dark:text-emerald-600" />}
               <span>{viewMode === 'feed' ? 'Canvas' : 'Feed'}</span>
@@ -530,7 +572,7 @@ export const App: React.FC = () => {
                   setQuickAddClusterId(null);
                   setQuickAddOpen(true);
                 }}
-                className="w-11 h-11 rounded-full bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 shadow-xl flex items-center justify-center transition-transform active:scale-95"
+                className="w-11 h-11 rounded-full bg-white/90 dark:bg-slate-800/90 text-slate-700 dark:text-slate-200 border border-slate-200/80 dark:border-white/10 backdrop-blur-xl shadow-xl flex items-center justify-center transition-transform active:scale-95"
                 title="Quick Note"
               >
                 <FileText className="w-5 h-5 text-emerald-500" />
@@ -542,7 +584,7 @@ export const App: React.FC = () => {
                   setQuickAddClusterId(null);
                   setQuickAddOpen(true);
                 }}
-                className="flex items-center gap-1.5 px-4 py-2.5 rounded-full bg-indigo-600 text-white shadow-xl text-xs font-bold transition-transform active:scale-95 hover:bg-indigo-700"
+                className="flex items-center gap-1.5 px-4 py-2.5 rounded-full bg-indigo-600 text-white shadow-xl shadow-indigo-500/25 text-xs font-bold transition-transform active:scale-95 hover:bg-indigo-700"
                 title="Add Task List"
               >
                 <Plus className="w-4 h-4" />
@@ -552,6 +594,29 @@ export const App: React.FC = () => {
           </div>
         </main>
       </div>
+
+      {/* Spotlight Command Palette (Cmd+K) */}
+      <CommandPalette
+        isOpen={commandPaletteOpen}
+        documents={workspace.documents}
+        activeDocument={activeDocument}
+        theme={workspace.theme as 'dark' | 'light'}
+        viewMode={viewMode}
+        onClose={() => setCommandPaletteOpen(false)}
+        onSelectDocument={(docId) => setWorkspace((prev) => ({ ...prev, activeDocId: docId }))}
+        onAddCard={handleAddCard}
+        onAddCluster={handleAddCluster}
+        onToggleTheme={() =>
+          setWorkspace((prev) => ({
+            ...prev,
+            theme: prev.theme === 'dark' ? 'light' : 'dark',
+          }))
+        }
+        onToggleViewMode={() => setViewMode(viewMode === 'feed' ? 'canvas' : 'feed')}
+        onOpenSupabase={() => setSupabaseModalOpen(true)}
+        onOpenShare={() => setShareModalOpen(true)}
+        onFocusCard={handleFocusCard}
+      />
 
       {/* Mobile Quick Add Bottom Sheet */}
       <MobileQuickAddSheet

@@ -1,17 +1,16 @@
 import React, { useState } from 'react';
 import { 
-  CheckSquare, 
-  Square, 
+  Check, 
   Trash2, 
   Plus, 
-  MoreVertical, 
-  Move, 
+  MoreHorizontal, 
+  GripVertical, 
   Palette, 
   Tag, 
   ExternalLink, 
   Minus, 
   Copy, 
-  Layers 
+  Layers
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import type { CardData, CardColor, TodoItem, BookmarkItem, Cluster } from '../types';
@@ -63,11 +62,10 @@ export const CardView: React.FC<CardViewProps> = ({
 
     onUpdate({ todos: updated });
 
-    // Check if all are now completed
     const allDone = updated.length > 0 && updated.every((t) => t.completed);
     if (allDone) {
       confetti({
-        particleCount: 50,
+        particleCount: 45,
         spread: 60,
         origin: { y: 0.6 },
       });
@@ -78,7 +76,6 @@ export const CardView: React.FC<CardViewProps> = ({
     if (e) e.preventDefault();
     if (!newTodoText.trim()) return;
 
-    // Extract any #tags from the todo text automatically
     const extractedTags = (newTodoText.match(/#[a-zA-Z0-9_-]+/g) || []);
     let updatedTags = [...card.tags];
     extractedTags.forEach(t => {
@@ -150,6 +147,9 @@ export const CardView: React.FC<CardViewProps> = ({
   const totalCount = card.todos ? card.todos.length : 0;
   const progressPercent = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
 
+  // Sticky tilt styling
+  const isSticky = card.type === 'sticky';
+
   return (
     <div
       onClick={(e) => {
@@ -162,46 +162,49 @@ export const CardView: React.FC<CardViewProps> = ({
         top: `${card.y}px`,
         width: `${card.width || 320}px`,
         zIndex: isSelected ? 30 : 10,
+        transform: isSticky ? 'rotate(-0.4deg)' : undefined,
       }}
-      className={`group rounded-xl border shadow-sm transition-shadow duration-150 ${colorTheme.bg} ${colorTheme.border} ${
-        isSelected ? 'ring-2 ring-indigo-500 shadow-xl' : 'hover:shadow-md'
-      } flex flex-col`}
+      className={`group rounded-2xl border transition-all duration-200 ${colorTheme.bg} ${colorTheme.border} ${
+        isSelected 
+          ? 'ring-2 ring-indigo-500 shadow-2xl scale-[1.01]' 
+          : 'card-shadow dark:card-shadow-dark hover:card-shadow-hover hover:-translate-y-0.5'
+      } flex flex-col overflow-hidden`}
     >
-      {/* Card Header & Drag Handle */}
+      {/* Designer Card Header */}
       <div 
         onMouseDown={(e) => onStartDrag(e, card.id)}
-        className={`flex items-center justify-between px-3 py-2 cursor-grab active:cursor-grabbing border-b ${colorTheme.border} ${colorTheme.header} rounded-t-xl select-none`}
+        className={`flex items-center justify-between px-3.5 py-2.5 cursor-grab active:cursor-grabbing border-b ${colorTheme.border} ${colorTheme.header} select-none`}
       >
         <div className="flex items-center gap-1.5 flex-1 min-w-0 mr-2">
-          <Move className="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-200 shrink-0" />
+          <GripVertical className="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-300 shrink-0 transition-colors" />
           <input
             type="text"
             value={card.title}
             onChange={(e) => onUpdate({ title: e.target.value })}
             placeholder="Untitled card..."
-            className="w-full bg-transparent font-medium text-sm text-slate-800 dark:text-slate-100 outline-none truncate focus:bg-white/40 dark:focus:bg-black/30 rounded px-1"
+            className="w-full bg-transparent font-semibold text-xs tracking-tight text-slate-800 dark:text-slate-100 outline-none truncate focus:bg-white/50 dark:focus:bg-black/40 rounded px-1.5 py-0.5 transition-colors"
             onClick={(e) => e.stopPropagation()}
             onMouseDown={(e) => e.stopPropagation()}
           />
         </div>
 
         <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
-          {/* Card Type Badge */}
-          <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-black/5 dark:bg-white/10 text-slate-600 dark:text-slate-300">
+          {/* Card Type Pill */}
+          <span className="text-[9px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded-md bg-black/5 dark:bg-white/10 text-slate-600 dark:text-slate-300 font-mono">
             {card.type}
           </span>
 
-          {/* Color button */}
+          {/* Color Switcher */}
           <div className="relative">
             <button
               onClick={() => setShowColorPicker(!showColorPicker)}
-              className="p-1 rounded hover:bg-black/5 dark:hover:bg-white/10 text-slate-500 hover:text-slate-700 dark:text-slate-400"
-              title="Change color"
+              className="p-1 rounded-md hover:bg-black/5 dark:hover:bg-white/10 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
+              title="Change tint"
             >
               <Palette className="w-3.5 h-3.5" />
             </button>
             {showColorPicker && (
-              <div className="absolute right-0 top-full mt-1 p-2 bg-white dark:bg-slate-800 rounded-lg shadow-xl border border-slate-200 dark:border-slate-700 flex gap-1 z-50">
+              <div className="absolute right-0 top-full mt-1.5 p-2 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl rounded-xl shadow-2xl border border-slate-200 dark:border-white/10 flex gap-1.5 z-50 animate-in fade-in zoom-in-95 duration-100">
                 {colors.map((c) => (
                   <button
                     key={c}
@@ -210,7 +213,9 @@ export const CardView: React.FC<CardViewProps> = ({
                       setShowColorPicker(false);
                     }}
                     className={`w-5 h-5 rounded-full border border-black/10 dark:border-white/20 transition-transform hover:scale-125 ${
-                      c === 'default' ? 'bg-slate-200' :
+                      card.color === c ? 'ring-2 ring-indigo-500 scale-110' : ''
+                    } ${
+                      c === 'default' ? 'bg-slate-300' :
                       c === 'yellow' ? 'bg-amber-400' :
                       c === 'green' ? 'bg-emerald-400' :
                       c === 'blue' ? 'bg-sky-400' :
@@ -228,24 +233,24 @@ export const CardView: React.FC<CardViewProps> = ({
           <div className="relative">
             <button
               onClick={() => setShowMenu(!showMenu)}
-              className="p-1 rounded hover:bg-black/5 dark:hover:bg-white/10 text-slate-500 hover:text-slate-700 dark:text-slate-400"
+              className="p-1 rounded-md hover:bg-black/5 dark:hover:bg-white/10 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
             >
-              <MoreVertical className="w-3.5 h-3.5" />
+              <MoreHorizontal className="w-3.5 h-3.5" />
             </button>
             {showMenu && (
-              <div className="absolute right-0 top-full mt-1 w-44 bg-white dark:bg-slate-800 rounded-lg shadow-xl border border-slate-200 dark:border-slate-700 py-1 z-50 text-xs">
+              <div className="absolute right-0 top-full mt-1.5 w-44 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl rounded-xl shadow-2xl border border-slate-200 dark:border-white/10 py-1 z-50 text-xs">
                 <button
                   onClick={() => {
                     onDuplicate();
                     setShowMenu(false);
                   }}
-                  className="w-full text-left px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-200"
+                  className="w-full text-left px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-white/5 flex items-center gap-2 text-slate-700 dark:text-slate-200"
                 >
                   <Copy className="w-3.5 h-3.5" /> Duplicate Card
                 </button>
 
                 {/* Move to Cluster */}
-                <div className="px-3 py-1 font-semibold text-[10px] text-slate-400 uppercase border-t border-slate-100 dark:border-slate-700 mt-1">
+                <div className="px-3 py-1 font-semibold text-[10px] text-slate-400 uppercase tracking-wider border-t border-slate-100 dark:border-white/[0.08] mt-1">
                   Assign Cluster
                 </div>
                 <button
@@ -253,7 +258,7 @@ export const CardView: React.FC<CardViewProps> = ({
                     onUpdate({ clusterId: null });
                     setShowMenu(false);
                   }}
-                  className={`w-full text-left px-3 py-1 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-2 ${
+                  className={`w-full text-left px-3 py-1 hover:bg-slate-100 dark:hover:bg-white/5 flex items-center gap-2 ${
                     !card.clusterId ? 'text-indigo-600 font-semibold' : 'text-slate-700 dark:text-slate-300'
                   }`}
                 >
@@ -266,11 +271,11 @@ export const CardView: React.FC<CardViewProps> = ({
                       onUpdate({ clusterId: cl.id });
                       setShowMenu(false);
                     }}
-                    className={`w-full text-left px-3 py-1 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-2 truncate ${
+                    className={`w-full text-left px-3 py-1 hover:bg-slate-100 dark:hover:bg-white/5 flex items-center gap-2 truncate ${
                       card.clusterId === cl.id ? 'text-indigo-600 font-semibold' : 'text-slate-700 dark:text-slate-300'
                     }`}
                   >
-                    <span className="w-2 h-2 rounded-full bg-slate-400 shrink-0" />
+                    <span className="w-2 h-2 rounded-full bg-indigo-500 shrink-0" />
                     <span className="truncate">{cl.title}</span>
                   </button>
                 ))}
@@ -280,7 +285,7 @@ export const CardView: React.FC<CardViewProps> = ({
                     onDelete();
                     setShowMenu(false);
                   }}
-                  className="w-full text-left px-3 py-1.5 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-600 dark:text-rose-400 flex items-center gap-2 border-t border-slate-100 dark:border-slate-700 mt-1"
+                  className="w-full text-left px-3 py-1.5 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-600 dark:text-rose-400 flex items-center gap-2 border-t border-slate-100 dark:border-white/[0.08] mt-1"
                 >
                   <Trash2 className="w-3.5 h-3.5" /> Delete Card
                 </button>
@@ -292,14 +297,14 @@ export const CardView: React.FC<CardViewProps> = ({
 
       {/* Tags section */}
       <div 
-        className="px-3 pt-2 flex flex-wrap items-center gap-1.5"
+        className="px-3.5 pt-2 flex flex-wrap items-center gap-1.5"
         onClick={(e) => e.stopPropagation()}
         onMouseDown={(e) => e.stopPropagation()}
       >
         {card.tags.map((tag) => (
           <span
             key={tag}
-            className="group/tag inline-flex items-center text-[11px] font-medium px-2 py-0.5 rounded-full bg-black/5 dark:bg-white/10 text-slate-700 dark:text-slate-300 hover:bg-rose-100 hover:text-rose-700 dark:hover:bg-rose-950/60 dark:hover:text-rose-300 transition-colors cursor-pointer"
+            className="group/tag inline-flex items-center text-[10px] font-semibold px-2 py-0.5 rounded-md bg-black/5 dark:bg-white/10 text-slate-700 dark:text-slate-300 hover:bg-rose-100 hover:text-rose-700 dark:hover:bg-rose-950/60 dark:hover:text-rose-300 transition-colors cursor-pointer"
             onClick={() => handleRemoveTag(tag)}
             title="Click to remove tag"
           >
@@ -319,11 +324,11 @@ export const CardView: React.FC<CardViewProps> = ({
                 if (e.key === 'Escape') setShowTagInput(false);
               }}
               placeholder="#tag..."
-              className="text-xs px-1.5 py-0.5 border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 outline-none w-20"
+              className="text-xs px-2 py-0.5 border border-slate-300 dark:border-white/20 rounded-md bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 outline-none w-20"
             />
             <button
               onClick={handleAddTag}
-              className="text-xs text-indigo-600 font-semibold hover:underline"
+              className="text-xs text-indigo-600 dark:text-indigo-400 font-semibold hover:underline"
             >
               Add
             </button>
@@ -331,32 +336,32 @@ export const CardView: React.FC<CardViewProps> = ({
         ) : (
           <button
             onClick={() => setShowTagInput(true)}
-            className="text-[10px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 flex items-center gap-0.5 px-1 py-0.5 rounded hover:bg-black/5 dark:hover:bg-white/5"
+            className="text-[10px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 flex items-center gap-0.5 px-1 py-0.5 rounded hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
           >
             <Tag className="w-2.5 h-2.5" /> +tag
           </button>
         )}
       </div>
 
-      {/* Card Body depending on type */}
+      {/* Card Body */}
       <div 
-        className="p-3 flex-1 flex flex-col"
+        className="p-3.5 flex-1 flex flex-col"
         onClick={(e) => e.stopPropagation()}
         onMouseDown={(e) => e.stopPropagation()}
       >
         {/* TYPE 1: TODO LIST */}
         {card.type === 'todo' && (
-          <div className="space-y-2">
-            {/* Progress Bar */}
+          <div className="space-y-2.5">
+            {/* Glowing Gradient Progress Bar */}
             {totalCount > 0 && (
               <div className="mb-2">
-                <div className="flex justify-between items-center text-[10px] text-slate-500 dark:text-slate-400 mb-1 font-medium">
-                  <span>Progress ({completedCount}/{totalCount})</span>
-                  <span>{progressPercent}%</span>
+                <div className="flex justify-between items-center text-[10px] text-slate-500 dark:text-slate-400 mb-1 font-semibold">
+                  <span>{completedCount} of {totalCount} completed</span>
+                  <span className="tabular-nums">{progressPercent}%</span>
                 </div>
-                <div className="w-full h-1.5 bg-black/10 dark:bg-white/10 rounded-full overflow-hidden">
+                <div className="w-full h-1.5 bg-black/5 dark:bg-white/10 rounded-full overflow-hidden">
                   <div
-                    className="h-full bg-emerald-500 rounded-full transition-all duration-300"
+                    className="h-full bg-gradient-to-r from-indigo-500 to-emerald-400 rounded-full transition-all duration-300"
                     style={{ width: `${progressPercent}%` }}
                   />
                 </div>
@@ -364,22 +369,24 @@ export const CardView: React.FC<CardViewProps> = ({
             )}
 
             {/* Todo items */}
-            <div className="space-y-1.5 max-h-80 overflow-y-auto pr-1">
+            <div className="space-y-1 max-h-80 overflow-y-auto pr-1">
               {(card.todos || []).map((todo) => (
                 <div
                   key={todo.id}
-                  className="group/item flex items-start gap-2 text-sm rounded-lg p-1 hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+                  className="group/item flex items-center gap-2.5 text-xs rounded-xl p-1.5 hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
                 >
+                  {/* Custom Squircle Checkbox */}
                   <button
                     onClick={() => handleToggleTodo(todo.id)}
-                    className="mt-0.5 text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 shrink-0"
+                    className={`w-4 h-4 rounded-md border flex items-center justify-center transition-all ${
+                      todo.completed
+                        ? 'bg-emerald-500 border-emerald-500 text-white shadow-xs'
+                        : 'border-slate-300 dark:border-white/20 hover:border-emerald-500'
+                    }`}
                   >
-                    {todo.completed ? (
-                      <CheckSquare className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                    ) : (
-                      <Square className="w-4 h-4" />
-                    )}
+                    {todo.completed && <Check className="w-3 h-3 stroke-[3]" />}
                   </button>
+
                   <input
                     type="text"
                     value={todo.text}
@@ -389,13 +396,14 @@ export const CardView: React.FC<CardViewProps> = ({
                       );
                       onUpdate({ todos: updated });
                     }}
-                    className={`flex-1 bg-transparent outline-none text-xs leading-relaxed ${
+                    className={`flex-1 bg-transparent outline-none text-xs leading-relaxed transition-all ${
                       todo.completed
                         ? 'line-through text-slate-400 dark:text-slate-500'
                         : 'text-slate-800 dark:text-slate-100'
                     }`}
                   />
-                  {/* Priority selector */}
+
+                  {/* Priority Indicator Dot */}
                   <button
                     onClick={() => {
                       const nextPrio = todo.priority === 'high' ? 'low' : todo.priority === 'low' ? 'medium' : 'high';
@@ -404,20 +412,21 @@ export const CardView: React.FC<CardViewProps> = ({
                       );
                       onUpdate({ todos: updated });
                     }}
-                    className={`text-[9px] font-bold uppercase px-1 py-0.5 rounded opacity-75 group-hover/item:opacity-100 ${
+                    className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-md transition-opacity ${
                       todo.priority === 'high'
-                        ? 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300'
+                        ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400'
                         : todo.priority === 'low'
-                        ? 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
-                        : 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
+                        ? 'bg-slate-500/10 text-slate-500 dark:text-slate-400'
+                        : 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
                     }`}
-                    title="Click to toggle priority"
+                    title="Toggle priority"
                   >
                     {todo.priority || 'med'}
                   </button>
+
                   <button
                     onClick={() => handleDeleteTodo(todo.id)}
-                    className="opacity-0 group-hover/item:opacity-100 text-slate-400 hover:text-rose-500 p-0.5"
+                    className="opacity-0 group-hover/item:opacity-100 text-slate-400 hover:text-rose-500 p-0.5 transition-opacity"
                   >
                     <Trash2 className="w-3 h-3" />
                   </button>
@@ -425,20 +434,20 @@ export const CardView: React.FC<CardViewProps> = ({
               ))}
             </div>
 
-            {/* Add Todo input */}
+            {/* Quick Add input */}
             <form onSubmit={handleAddTodo} className="flex items-center gap-1.5 mt-2 pt-2 border-t border-black/5 dark:border-white/5">
               <Plus className="w-3.5 h-3.5 text-slate-400 shrink-0" />
               <input
                 type="text"
                 value={newTodoText}
                 onChange={(e) => setNewTodoText(e.target.value)}
-                placeholder="Add task... (use #tags for auto-tagging)"
+                placeholder="Add task... (hit Enter)"
                 className="w-full text-xs bg-transparent outline-none text-slate-800 dark:text-slate-100 placeholder-slate-400"
               />
               <button
                 type="submit"
                 disabled={!newTodoText.trim()}
-                className="text-xs px-2 py-0.5 bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-30 shrink-0 font-medium"
+                className="text-xs px-2.5 py-1 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-30 shrink-0 font-semibold shadow-xs"
               >
                 Add
               </button>
@@ -446,15 +455,15 @@ export const CardView: React.FC<CardViewProps> = ({
           </div>
         )}
 
-        {/* TYPE 2: FREEFORM NOTE / SCRATCHPAD */}
+        {/* TYPE 2: FREEFORM SCRATCHPAD NOTE */}
         {card.type === 'note' && (
           <div className="flex flex-col flex-1">
             <textarea
               value={card.noteContent || ''}
               onChange={(e) => onUpdate({ noteContent: e.target.value })}
-              placeholder="Start unstructured brain dump or notes here...&#10;- Use bullets&#10;- Quick memos&#10;- Markdown supported"
+              placeholder="Start unstructured thoughts here...&#10;• Bullets supported&#10;• Quick memos&#10;• Multi-line brain dumps"
               rows={6}
-              className="w-full h-full min-h-[120px] bg-transparent outline-none resize-y text-xs leading-relaxed text-slate-800 dark:text-slate-100 placeholder-slate-400 font-mono"
+              className="w-full h-full min-h-[120px] bg-transparent outline-none resize-y text-xs leading-relaxed text-slate-800 dark:text-slate-100 placeholder-slate-400 font-sans"
             />
           </div>
         )}
@@ -466,34 +475,34 @@ export const CardView: React.FC<CardViewProps> = ({
               value={card.noteContent || ''}
               onChange={(e) => onUpdate({ noteContent: e.target.value })}
               placeholder="Important reminder, idea, or quote..."
-              rows={4}
-              className="w-full h-full min-h-[100px] bg-transparent outline-none resize-none text-sm leading-relaxed text-slate-800 dark:text-slate-900 placeholder-slate-500 font-sans italic"
+              rows={5}
+              className="w-full h-full min-h-[110px] bg-transparent outline-none resize-none text-xs leading-relaxed text-slate-800 dark:text-slate-200 placeholder-slate-400 font-sans italic"
             />
           </div>
         )}
 
-        {/* TYPE 4: COUNTER */}
+        {/* TYPE 4: TACTILE MECHANICAL COUNTER */}
         {card.type === 'counter' && (
           <div className="flex flex-col items-center justify-center py-4 select-none">
             <input
               type="text"
               value={card.counterLabel || 'Items'}
               onChange={(e) => onUpdate({ counterLabel: e.target.value })}
-              className="text-center font-medium text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wider bg-transparent outline-none mb-2"
+              className="text-center font-bold text-xs text-slate-400 uppercase tracking-widest bg-transparent outline-none mb-3"
             />
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-5">
               <button
                 onClick={() => onUpdate({ counterValue: Math.max(0, (card.counterValue || 0) - 1) })}
-                className="w-9 h-9 rounded-full bg-black/10 dark:bg-white/10 hover:bg-black/20 dark:hover:bg-white/20 flex items-center justify-center text-slate-700 dark:text-slate-200 transition-colors"
+                className="w-10 h-10 rounded-2xl bg-black/5 dark:bg-white/10 hover:bg-black/10 dark:hover:bg-white/20 active:scale-95 flex items-center justify-center text-slate-700 dark:text-slate-200 transition-all font-bold shadow-xs"
               >
                 <Minus className="w-4 h-4" />
               </button>
-              <div className="text-4xl font-extrabold text-slate-800 dark:text-slate-100 tabular-nums">
+              <div className="text-4xl font-black text-slate-800 dark:text-slate-100 tabular-nums tracking-tight">
                 {card.counterValue || 0}
               </div>
               <button
                 onClick={() => onUpdate({ counterValue: (card.counterValue || 0) + 1 })}
-                className="w-9 h-9 rounded-full bg-black/10 dark:bg-white/10 hover:bg-black/20 dark:hover:bg-white/20 flex items-center justify-center text-slate-700 dark:text-slate-200 transition-colors"
+                className="w-10 h-10 rounded-2xl bg-indigo-600 hover:bg-indigo-700 active:scale-95 flex items-center justify-center text-white transition-all font-bold shadow-md shadow-indigo-500/20"
               >
                 <Plus className="w-4 h-4" />
               </button>
@@ -508,15 +517,15 @@ export const CardView: React.FC<CardViewProps> = ({
               {(card.bookmarks || []).map((bm) => (
                 <div
                   key={bm.id}
-                  className="flex items-center justify-between gap-2 p-1.5 rounded-lg bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 group/link transition-colors"
+                  className="flex items-center justify-between gap-2 p-2 rounded-xl bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 group/link transition-colors"
                 >
                   <a
                     href={bm.url}
                     target="_blank"
                     rel="noreferrer"
-                    className="flex items-center gap-1.5 text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:underline truncate"
+                    className="flex items-center gap-2 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline truncate"
                   >
-                    <ExternalLink className="w-3 h-3 shrink-0" />
+                    <ExternalLink className="w-3.5 h-3.5 shrink-0" />
                     <span className="truncate">{bm.title}</span>
                   </a>
                   <button
@@ -525,7 +534,7 @@ export const CardView: React.FC<CardViewProps> = ({
                         bookmarks: (card.bookmarks || []).filter((b) => b.id !== bm.id),
                       });
                     }}
-                    className="opacity-0 group-hover/link:opacity-100 text-slate-400 hover:text-rose-500 p-0.5"
+                    className="opacity-0 group-hover/link:opacity-100 text-slate-400 hover:text-rose-500 p-0.5 transition-opacity"
                   >
                     <Trash2 className="w-3 h-3" />
                   </button>
@@ -537,29 +546,29 @@ export const CardView: React.FC<CardViewProps> = ({
               <form onSubmit={handleAddBookmark} className="space-y-1.5 pt-2 border-t border-black/5 dark:border-white/5">
                 <input
                   type="text"
-                  placeholder="Link Title (e.g. WiFi Portal)"
+                  placeholder="Link Title (e.g. Wi-Fi Portal)"
                   value={newBookmarkTitle}
                   onChange={(e) => setNewBookmarkTitle(e.target.value)}
-                  className="w-full text-xs px-2 py-1 rounded bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 outline-none text-slate-800 dark:text-slate-100"
+                  className="w-full text-xs px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-300 dark:border-white/15 outline-none text-slate-800 dark:text-slate-100"
                 />
                 <input
                   type="text"
                   placeholder="URL or phone (https://... or tel:...)"
                   value={newBookmarkUrl}
                   onChange={(e) => setNewBookmarkUrl(e.target.value)}
-                  className="w-full text-xs px-2 py-1 rounded bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 outline-none text-slate-800 dark:text-slate-100"
+                  className="w-full text-xs px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-300 dark:border-white/15 outline-none text-slate-800 dark:text-slate-100"
                 />
-                <div className="flex justify-end gap-1">
+                <div className="flex justify-end gap-1.5">
                   <button
                     type="button"
                     onClick={() => setShowAddBookmark(false)}
-                    className="text-xs px-2 py-0.5 text-slate-500"
+                    className="text-xs px-2.5 py-1 text-slate-400 hover:text-slate-600"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
-                    className="text-xs px-2.5 py-0.5 bg-indigo-600 text-white rounded font-medium"
+                    className="text-xs px-3 py-1 bg-indigo-600 text-white rounded-lg font-semibold shadow-xs"
                   >
                     Save Link
                   </button>
@@ -568,9 +577,9 @@ export const CardView: React.FC<CardViewProps> = ({
             ) : (
               <button
                 onClick={() => setShowAddBookmark(true)}
-                className="w-full flex items-center justify-center gap-1 py-1 text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 border border-dashed border-slate-300 dark:border-slate-700 rounded-lg hover:border-slate-400"
+                className="w-full flex items-center justify-center gap-1.5 py-1.5 text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 border border-dashed border-slate-300 dark:border-white/15 rounded-xl hover:border-slate-400 transition-colors"
               >
-                <Plus className="w-3 h-3" /> Add Link
+                <Plus className="w-3.5 h-3.5" /> Add Link
               </button>
             )}
           </div>
