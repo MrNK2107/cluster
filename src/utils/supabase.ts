@@ -1,6 +1,9 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import type { WorkspaceData } from '../types';
 
+const DEFAULT_SUPABASE_URL = 'https://ctoitimqyyuxtwxhmllf.supabase.co';
+const DEFAULT_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN0b2l0aW1xeXl1eHR3eGhtbGxmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTI3NDA4MDgsImV4cCI6MjEwODMxNjgwOH0.C_32yZ5KFYU8MdrX-9BczhcbSFF9Nkj75Pwe6AYrgfM';
+
 const STORAGE_SUPABASE_URL_KEY = 'clustr_supabase_url';
 const STORAGE_SUPABASE_KEY_KEY = 'clustr_supabase_anon_key';
 
@@ -10,8 +13,8 @@ export function getSupabaseCredentials(): { url: string; key: string } {
   const envUrl = import.meta.env.VITE_SUPABASE_URL || '';
   const envKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 
-  const localUrl = localStorage.getItem(STORAGE_SUPABASE_URL_KEY) || envUrl;
-  const localKey = localStorage.getItem(STORAGE_SUPABASE_KEY_KEY) || envKey;
+  const localUrl = localStorage.getItem(STORAGE_SUPABASE_URL_KEY) || envUrl || DEFAULT_SUPABASE_URL;
+  const localKey = localStorage.getItem(STORAGE_SUPABASE_KEY_KEY) || envKey || DEFAULT_SUPABASE_ANON_KEY;
 
   return { url: localUrl, key: localKey };
 }
@@ -49,7 +52,7 @@ export async function fetchCloudWorkspace(): Promise<{ data: WorkspaceData | nul
 
   try {
     const { data: { user } } = await client.auth.getUser();
-    if (!user) return { data: null, error: 'Not authenticated' };
+    if (!user) return { data: null, error: 'Not authenticated. Please sign in.' };
 
     const { data, error } = await client
       .from('workspaces')
@@ -76,7 +79,7 @@ export async function syncWorkspaceToSupabase(workspace: WorkspaceData): Promise
 
   try {
     const { data: { user } } = await client.auth.getUser();
-    if (!user) return { success: false, error: 'Not authenticated' };
+    if (!user) return { success: false, error: 'Not authenticated. Please sign in.' };
 
     const { error } = await client
       .from('workspaces')
