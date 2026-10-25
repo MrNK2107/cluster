@@ -1,90 +1,78 @@
-# Clustr ⚡ — Free Unstructured Spatial Todos & Clusters
+# Clustr ⚡ — Spatial todos, notes & clusters
 
-> A spatial, unstructured to-do list & canvas app with multiple documents, clusters, and loose scratchpads. **100% free to host forever** with zero server costs, zero maintenance, and instant offline-ready performance.
-> Now with **Mobile-First Responsive Feed View** and **Free Supabase Cloud Sync**!
+> A spatial, unstructured to-do list and canvas app with multiple spaces, clusters and loose scratchpads.
+> Local-first (IndexedDB), free to host as a static site, with optional cloud sync through your own Supabase project.
 
 ---
 
 ## ✨ Features
 
-- **📱 Mobile-First Responsive Feed & 🗺️ Spatial Canvas**:
-  - **Feed View (Mobile-First)**: Thumb-friendly card stacks organized by Cluster, horizontal chip navigation, 44px tap targets for easy one-hand checkoffs, and a sticky bottom action bar.
-  - **Spatial Canvas (Desktop/Tablet)**: Infinite smooth pan & zoom canvas with custom dot grid, drag-and-drop cards, and relation arrows.
-  - Seamless 1-tap switcher between **Feed View** and **Canvas View**.
-- **☁️ 100% Free Supabase Cloud Sync**:
-  - Multi-device real-time sync across your phone, tablet, and computer.
-  - Sign in with email or continue offline.
-  - Stores data securely with Row Level Security (RLS).
-  - Also works local-first using IndexedDB if you prefer not to connect cloud storage.
-- **📦 Clusters (Grouping Zones)**:
-  - Color-coded group boundaries that hold tasks, notes, and scratchpads together.
-  - Drag a cluster to move all its cards at once.
-  - Collapse / expand clusters to keep your workspace tidy.
-  - Live completion stats (e.g., `4/6 tasks done`).
-- **📝 Unstructured Card Types**:
-  - **Interactive Todo Checklists**: Add items, press Enter to continue, strike-through, inline `#tag` extraction, priority flags (`high`, `med`, `low`), and celebratory confetti when you complete all tasks!
-  - **Freeform Notes & Scratchpads**: Stream-of-consciousness typing, bullet points, and markdown notes.
-  - **Sticky Notes**: High-contrast post-it notes with warm colors for quick reminders.
-  - **Tally Counters**: One-tap increment/decrement counters for tracking daily counts, arrivals, or metrics.
-  - **Bookmarks & Quick Links**: Save and 1-click launch key links, phone numbers, or portals.
-- **🗂️ Multi-Document & Spaces Management**:
-  - Switch between multiple independent spaces (e.g., *🏨 Hostel & Property Hub*, *🧠 Unstructured Life Scratchpad*, *🚀 Sprint Board*).
-  - Create new spaces from pre-built starter templates or start blank.
+- **📱 Feed view and 🗺️ spatial canvas**
+  - Feed view for phones: thumb-friendly card stacks grouped by cluster, chip navigation, 44px tap targets, sticky action bar.
+  - Canvas for desktop and tablet: infinite pan and zoom, dot grid, drag-and-drop cards, relation arrows, minimap.
+  - One-tap switch between the two.
+- **📦 Clusters**: colour-coded grouping zones. Drag a cluster to move its cards, collapse it to tidy up, see live completion stats.
+- **📝 Card types**: todo checklists with `#tags` and priorities (confetti when you finish), freeform notes, sticky notes, tally counters, bookmark lists.
+- **🗂️ Multiple spaces**: independent boards, starter templates, duplicate and delete, ⌘K command palette.
+- **☁️ Optional cloud sync**: sign in with email and push or pull your workspace to a Supabase project you control. Row Level Security keeps each account's data private.
+- **💾 Backup and share**: JSON backup and restore, Markdown export, and snapshot links that carry a copy of a space.
 
 ---
 
-## ⚡ Free Supabase 1-Step Setup
-
-1. Create a free project at [supabase.com](https://supabase.com) (100% free tier forever).
-2. Open the **SQL Editor** in your Supabase dashboard and run this single script:
-```sql
-create table if not exists public.workspaces (
-  user_id uuid primary key references auth.users(id) on delete cascade,
-  data jsonb not null,
-  updated_at timestamp with time zone default timezone('utc'::text, now()) not null
-);
-
-alter table public.workspaces enable row level security;
-
-create policy "Users can manage their own workspace" on public.workspaces
-  for all
-  using (auth.uid() = user_id)
-  with check (auth.uid() = user_id);
-```
-3. In the Clustr app, tap the **Supabase** button in the header, paste your Project URL and Anon Public Key, and sign in!
-*(Alternatively, you can add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` to your `.env` or Vercel environment variables).*
-
----
-
-## 🚀 How to Host Entirely for Free ($0 Forever)
-
-### Option 1: Vercel (Recommended - 60 Seconds)
-1. Push your code to GitHub.
-2. Go to [vercel.com](https://vercel.com) and click **"Add New Project"**.
-3. Select your repository `MrNK2107/cluster` and click **Deploy**.
-4. You get a live `https://cluster-xxx.vercel.app` URL with free SSL and worldwide CDN.
-
-### Option 2: Cloudflare Pages
-1. Go to [Cloudflare Dashboard](https://dash.cloudflare.com/) > **Workers & Pages** > **Create application** > **Pages**.
-2. Select your repository, set the build command to `npm run build` and output directory to `dist`.
-3. Deploy for unlimited free bandwidth.
-
----
-
-## 🛠️ Local Development
+## 🛠️ Local development
 
 ```bash
-# Install dependencies
-npm install
-
-# Start development server
+npm install          # also installs the pre-commit secret scanner
 npm run dev
-
-# Build for production
 npm run build
+npm run lint
+npm run check:secrets
 ```
+
+---
+
+## ☁️ Cloud sync setup (optional)
+
+Clustr works fully offline. To enable sync:
+
+1. Create a project at [supabase.com](https://supabase.com).
+2. In the project's **SQL Editor** run the migration in
+   [`supabase/migrations/20261023000000_create_workspaces.sql`](supabase/migrations/20261023000000_create_workspaces.sql)
+   (the same SQL is available from the *Copy SQL* button in the app's Cloud sync dialog).
+3. Either
+   - **per deployment**: set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` as build-time environment variables on your host
+     (or in a local, git-ignored `.env`; see `.env.example`), or
+   - **per user**: open **Sync** in the app, expand *Connection* and paste the project URL and anon key.
+     They stay in that browser only.
+
+Use the **anon / publishable** key only. The app rejects `service_role` and `sb_secret_` keys because they must never reach a browser.
+
+---
+
+## 🚀 Hosting
+
+Everything is static; any CDN works.
+
+- **Vercel**: import the repo and deploy. `vercel.json` adds SPA rewrites and security headers.
+- **Netlify**: same, via `netlify.toml`.
+- **Cloudflare Pages**: build command `npm run build`, output directory `dist`.
+- **GitHub Pages**: the workflow in `.github/workflows/deploy.yml` builds and publishes `dist` on every push to `main`.
+
+Set the two `VITE_SUPABASE_*` variables in the host's environment settings if you want sync pre-configured for visitors.
+
+---
+
+## 🔒 Security
+
+See [SECURITY.md](SECURITY.md) for the guard rails in this repo and for the
+history of a credential leak that requires the Supabase key to be rotated.
+
+- `.env` is git-ignored. A pre-commit hook and a CI workflow block commits that contain keys or tokens.
+- Only the anon key is ever bundled or stored; it is never echoed back into the UI.
+- Imported data (snapshot links, backups, cloud pulls) is validated before rendering, and bookmark links are limited to `http(s)`, `mailto` and `tel`.
 
 ---
 
 ## 📄 License
-MIT — Free to use, adapt, and host anywhere!
+
+MIT

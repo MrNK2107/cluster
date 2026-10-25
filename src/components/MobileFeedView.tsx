@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
-import { 
-  CheckSquare, 
-  Square, 
-  Plus, 
-  Trash2, 
-  Layers, 
+import {
+  CheckSquare,
+  Square,
+  Plus,
+  Trash2,
+  Layers,
   ExternalLink,
   ChevronDown,
   ChevronUp
@@ -12,6 +12,7 @@ import {
 import confetti from 'canvas-confetti';
 import type { BoardDocument, CardData, CardType, TodoItem } from '../types';
 import { COLOR_MAP } from '../utils/storage';
+import { safeHref } from '../utils/validate';
 
 interface MobileFeedViewProps {
   document: BoardDocument;
@@ -415,7 +416,7 @@ export const MobileFeedView: React.FC<MobileFeedViewProps> = ({
             {(card.bookmarks || []).map((bm) => (
               <a
                 key={bm.id}
-                href={bm.url}
+                href={safeHref(bm.url)}
                 target="_blank"
                 rel="noreferrer"
                 className="flex items-center gap-2 p-2 rounded-lg bg-black/5 dark:bg-white/5 text-xs text-indigo-600 dark:text-indigo-400 font-medium"

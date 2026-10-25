@@ -1,20 +1,21 @@
 import React, { useState } from 'react';
-import { 
-  Check, 
-  Trash2, 
-  Plus, 
-  MoreHorizontal, 
-  GripVertical, 
-  Palette, 
-  Tag, 
-  ExternalLink, 
-  Minus, 
-  Copy, 
+import {
+  Check,
+  Trash2,
+  Plus,
+  MoreHorizontal,
+  GripVertical,
+  Palette,
+  Tag,
+  ExternalLink,
+  Minus,
+  Copy,
   Layers
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import type { CardData, CardColor, TodoItem, BookmarkItem, Cluster } from '../types';
 import { COLOR_MAP } from '../utils/storage';
+import { safeHref, normalizeBookmarkUrl } from '../utils/validate';
 
 interface CardViewProps {
   card: CardData;
@@ -124,10 +125,8 @@ export const CardView: React.FC<CardViewProps> = ({
     e.preventDefault();
     if (!newBookmarkTitle.trim() || !newBookmarkUrl.trim()) return;
 
-    let url = newBookmarkUrl.trim();
-    if (!url.startsWith('http://') && !url.startsWith('https://') && !url.startsWith('tel:') && !url.startsWith('mailto:')) {
-      url = 'https://' + url;
-    }
+    const url = normalizeBookmarkUrl(newBookmarkUrl);
+    if (!url) return;
 
     const newBm: BookmarkItem = {
       id: `bm-${Date.now()}`,
@@ -165,13 +164,13 @@ export const CardView: React.FC<CardViewProps> = ({
         transform: isSticky ? 'rotate(-0.4deg)' : undefined,
       }}
       className={`group rounded-2xl border transition-all duration-200 ${colorTheme.bg} ${colorTheme.border} ${
-        isSelected 
-          ? 'ring-2 ring-indigo-500 shadow-2xl scale-[1.01]' 
+        isSelected
+          ? 'ring-2 ring-indigo-500 shadow-2xl scale-[1.01]'
           : 'card-shadow dark:card-shadow-dark hover:card-shadow-hover hover:-translate-y-0.5'
       } flex flex-col overflow-hidden`}
     >
       {/* Designer Card Header */}
-      <div 
+      <div
         onMouseDown={(e) => onStartDrag(e, card.id)}
         className={`flex items-center justify-between px-3.5 py-2.5 cursor-grab active:cursor-grabbing border-b ${colorTheme.border} ${colorTheme.header} select-none`}
       >
@@ -296,7 +295,7 @@ export const CardView: React.FC<CardViewProps> = ({
       </div>
 
       {/* Tags section */}
-      <div 
+      <div
         className="px-3.5 pt-2 flex flex-wrap items-center gap-1.5"
         onClick={(e) => e.stopPropagation()}
         onMouseDown={(e) => e.stopPropagation()}
@@ -344,7 +343,7 @@ export const CardView: React.FC<CardViewProps> = ({
       </div>
 
       {/* Card Body */}
-      <div 
+      <div
         className="p-3.5 flex-1 flex flex-col"
         onClick={(e) => e.stopPropagation()}
         onMouseDown={(e) => e.stopPropagation()}
@@ -520,7 +519,7 @@ export const CardView: React.FC<CardViewProps> = ({
                   className="flex items-center justify-between gap-2 p-2 rounded-xl bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 group/link transition-colors"
                 >
                   <a
-                    href={bm.url}
+                    href={safeHref(bm.url)}
                     target="_blank"
                     rel="noreferrer"
                     className="flex items-center gap-2 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline truncate"

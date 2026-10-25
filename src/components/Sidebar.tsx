@@ -1,14 +1,14 @@
 import React, { useState } from 'react';
-import { 
-  Plus, 
-  Trash2, 
-  Copy, 
-  Download, 
-  Upload, 
-  Search, 
+import {
+  Plus,
+  Trash2,
+  Copy,
+  Download,
+  Upload,
+  Search,
   FolderPlus,
   Command,
-  Database
+  Cloud
 } from 'lucide-react';
 import type { BoardDocument } from '../types';
 
@@ -83,9 +83,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <div>
               <h2 className="font-extrabold text-sm tracking-tight text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
                 Clustr
-                <span className="text-[9px] uppercase px-1.5 py-0.2 rounded-full bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 font-bold">
-                  Pro
-                </span>
               </h2>
               <p className="text-[10px] text-slate-400 dark:text-slate-500 font-medium leading-none">
                 Spatial Scratchpad & Todos
@@ -170,7 +167,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 </div>
 
                 {/* Hover actions */}
-                <div 
+                <div
                   className="opacity-0 group-hover:opacity-100 flex items-center gap-1 ml-1 transition-opacity"
                   onClick={(e) => e.stopPropagation()}
                 >
@@ -230,14 +227,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
 
           {/* Cloud Sync Status Pill */}
-          <div 
+          <div
             onClick={onOpenSupabase}
             className="p-2 rounded-xl bg-white dark:bg-white/5 border border-slate-200/80 dark:border-white/10 hover:border-indigo-500/50 cursor-pointer text-[10px] text-slate-600 dark:text-slate-300 flex items-center justify-between transition-colors group"
           >
             <div className="flex items-center gap-1.5">
-              <Database className="w-3.5 h-3.5 text-emerald-500" />
+              <Cloud className="w-3.5 h-3.5 text-emerald-500" />
               <span className="font-semibold">
-                {isCloudSynced ? 'Supabase Synced' : 'Local Storage Mode'}
+                {isCloudSynced ? 'Cloud sync on' : 'On this device only'}
               </span>
             </div>
             <span className={`w-2 h-2 rounded-full ${isCloudSynced ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`} />

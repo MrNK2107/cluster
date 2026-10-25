@@ -1,26 +1,27 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import type { 
-  WorkspaceData, 
-  BoardDocument, 
-  CardData, 
-  Cluster, 
-  Connection, 
+import type {
+  WorkspaceData,
+  BoardDocument,
+  CardData,
+  Cluster,
+  Connection,
   CardType,
-  CardColor 
+  CardColor
 } from './types';
-import { 
-  loadWorkspaceFromDB, 
-  saveWorkspaceToDB 
+import {
+  loadWorkspaceFromDB,
+  saveWorkspaceToDB
 } from './utils/db';
-import { 
-  INITIAL_DOCUMENTS, 
-  exportWorkspaceJSON 
+import {
+  INITIAL_DOCUMENTS,
+  exportWorkspaceJSON
 } from './utils/storage';
-import { 
-  getSupabaseClient, 
-  fetchCloudWorkspace, 
-  syncWorkspaceToSupabase 
+import {
+  getCurrentUserEmail,
+  fetchCloudWorkspace,
+  syncWorkspaceToSupabase,
 } from './utils/supabase';
+import { sanitizeDocument, sanitizeWorkspace } from './utils/validate';
 import { Sidebar } from './components/Sidebar';
 import { TopBar } from './components/TopBar';
 import { Canvas } from './components/Canvas';
@@ -32,6 +33,34 @@ import { SupabaseModal } from './components/SupabaseModal';
 import { CommandPalette } from './components/CommandPalette';
 import { MiniMap } from './components/MiniMap';
 import { Plus, FileText, Map, LayoutGrid } from 'lucide-react';
+
+/**
+ * Snapshot links (#doc=...) carry a whole document. Read it once, strip the
+ * hash so the payload does not linger in history, and validate it.
+ */
+function readSnapshotFromHash(): BoardDocument | null {
+  if (!window.location.hash.startsWith('#doc=')) return null;
+  const encoded = window.location.hash.slice('#doc='.length);
+  window.history.replaceState(null, '', window.location.pathname + window.location.search);
+  try {
+    return sanitizeDocument(JSON.parse(decodeURIComponent(atob(encoded))));
+  } catch {
+    return null; // Malformed link: the user still has their own data.
+  }
+}
+
+/** Adds a shared document without ever overwriting an existing space. */
+function mergeSharedDocument(ws: WorkspaceData, shared: BoardDocument): WorkspaceData {
+  const exists = ws.documents.some((d) => d.id === shared.id);
+  const incoming: BoardDocument = exists
+    ? {
+        ...shared,
+        id: `doc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        title: `${shared.title} (Shared)`,
+      }
+    : shared;
+  return { ...ws, activeDocId: incoming.id, documents: [incoming, ...ws.documents] };
+}
 
 export const App: React.FC = () => {
   const [workspace, setWorkspace] = useState<WorkspaceData>({
@@ -62,30 +91,26 @@ export const App: React.FC = () => {
 
   const [isCloudSynced, setIsCloudSynced] = useState(false);
 
-  // Load from IndexedDB on initial mount
+  // Load from IndexedDB on initial mount, then merge in any snapshot link.
+  // The merge must wait for the DB load, otherwise the stored workspace would
+  // overwrite the freshly imported document.
   useEffect(() => {
-    async function initDB() {
+    let cancelled = false;
+    async function init() {
       const stored = await loadWorkspaceFromDB();
-      if (stored) {
-        setWorkspace(stored);
-      }
-      checkSupabase();
+      if (cancelled) return;
+      const shared = readSnapshotFromHash();
+      setWorkspace(shared ? mergeSharedDocument(stored, shared) : stored);
+      void checkSupabase();
     }
-    initDB();
+    void init();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const checkSupabase = async () => {
-    const client = getSupabaseClient();
-    if (client) {
-      try {
-        const { data: { user } } = await client.auth.getUser();
-        setIsCloudSynced(!!user);
-      } catch (e) {
-        setIsCloudSynced(false);
-      }
-    } else {
-      setIsCloudSynced(false);
-    }
+    setIsCloudSynced((await getCurrentUserEmail()) !== null);
   };
 
   // Global keydown for Cmd+K / Ctrl+K
@@ -98,33 +123,6 @@ export const App: React.FC = () => {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
-
-  // URL Hash document snapshot check
-  useEffect(() => {
-    if (window.location.hash.startsWith('#doc=')) {
-      try {
-        const encoded = window.location.hash.replace('#doc=', '');
-        const jsonStr = decodeURIComponent(atob(encoded));
-        const sharedDoc: BoardDocument = JSON.parse(jsonStr);
-        if (sharedDoc && sharedDoc.id) {
-          setWorkspace((prev) => {
-            const exists = prev.documents.some((d) => d.id === sharedDoc.id);
-            const updatedDocs = exists
-              ? prev.documents.map((d) => (d.id === sharedDoc.id ? sharedDoc : d))
-              : [sharedDoc, ...prev.documents];
-            return {
-              ...prev,
-              activeDocId: sharedDoc.id,
-              documents: updatedDocs,
-            };
-          });
-          window.history.replaceState(null, '', window.location.pathname);
-        }
-      } catch (e) {
-        console.error('Failed to parse document from URL hash', e);
-      }
-    }
   }, []);
 
   // Save changes to IndexedDB
@@ -416,7 +414,7 @@ export const App: React.FC = () => {
       setWorkspace(res.data);
       setIsCloudSynced(true);
     } else {
-      throw new Error(res.error || 'No remote workspace found');
+      throw new Error(res.error || 'No cloud workspace found');
     }
   };
 
@@ -460,12 +458,13 @@ export const App: React.FC = () => {
           const reader = new FileReader();
           reader.onload = (e) => {
             try {
-              const parsed = JSON.parse(e.target?.result as string);
-              if (parsed.documents && Array.isArray(parsed.documents)) {
-                setWorkspace(parsed);
+              const restored = sanitizeWorkspace(JSON.parse(String(e.target?.result ?? '')));
+              if (!restored) throw new Error('invalid');
+              if (window.confirm('Replace everything on this device with the backup?')) {
+                setWorkspace(restored);
               }
-            } catch (err) {
-              alert('Could not parse backup JSON file.');
+            } catch {
+              alert('That file is not a valid Clustr backup.');
             }
           };
           reader.readAsText(file);
@@ -634,6 +633,7 @@ export const App: React.FC = () => {
         onClose={() => setSupabaseModalOpen(false)}
         onSyncPush={handleSyncPushToSupabase}
         onSyncPull={handleSyncPullFromSupabase}
+        onAuthChange={checkSupabase}
       />
 
       {/* Share / Export Modal */}

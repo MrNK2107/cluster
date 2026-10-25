@@ -1,16 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  Search, 
-  CheckSquare, 
-  FileText, 
-  StickyNote, 
-  Layers, 
-  Moon, 
-  Sun, 
-  Database, 
-  Share2, 
-  Map, 
-  LayoutGrid, 
+import {
+  Search,
+  CheckSquare,
+  FileText,
+  StickyNote,
+  Layers,
+  Moon,
+  Sun,
+  Cloud,
+  Share2,
+  Map,
+  LayoutGrid,
   FolderOpen
 } from 'lucide-react';
 import type { BoardDocument, CardType } from '../types';
@@ -137,14 +137,14 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
     {
       id: 'action-supabase',
       category: 'Quick Actions',
-      title: 'Supabase Cloud Sync & Account',
-      icon: Database,
+      title: 'Cloud Sync & Account',
+      icon: Cloud,
       perform: () => onOpenSupabase(),
     },
     {
       id: 'action-share',
       category: 'Quick Actions',
-      title: 'Export Markdown & Snapshot Link',
+      title: 'Export & Share',
       icon: Share2,
       shortcut: 'E',
       perform: () => onOpenShare(),
