@@ -2,44 +2,15 @@
 
 ## Incident: Supabase credentials committed to git (October 2026)
 
-Commit `84e7197` ("Configure Supabase project credentials…") added a real
-Supabase project URL and its anon JWT to three tracked files:
+An early commit added the real Supabase project URL and anon key to `.env`,
+`.env.example` and `src/utils/supabase.ts`. On 2026-10-25 the history was
+rewritten with `git filter-repo` and force-pushed, so the values no longer
+appear in any commit. The anon key was deliberately kept (small personal
+project, Row Level Security protects the data); it is now injected only
+through Vercel environment variables and a git-ignored local `.env`.
 
-- `.env`
-- `.env.example`
-- `src/utils/supabase.ts` (as `DEFAULT_SUPABASE_URL` / `DEFAULT_SUPABASE_ANON_KEY`)
-
-Commit `23476be` blanked the values, but **they are still readable in git
-history** on any clone of the public repository. Treat them as burned.
-
-### What to do (repository owner)
-
-1. **Rotate the key.** In the Supabase dashboard open *Project Settings →
-   API Keys*. If the project uses legacy JWT keys, rotate the JWT secret
-   (this invalidates the leaked anon key and signs every user out). If it
-   uses the newer publishable/secret keys, revoke the leaked one and create a
-   new publishable key. Update the deployment's `VITE_SUPABASE_ANON_KEY`.
-2. **Check Row Level Security.** The anon key only lets a caller do what RLS
-   permits. `supabase/migrations/20261023000000_create_workspaces.sql`
-   restricts `workspaces` to the owning user, so no data was exposed as long
-   as that policy was live. Verify no other tables exist without RLS.
-3. **Check Auth settings.** With a leaked anon key anyone can call sign-up on
-   the project. Enable email confirmation and consider captcha or disabling
-   public sign-ups if the app is not meant to be open.
-4. **Purge the history** so the values stop being served from GitHub.
-   This rewrites every commit and needs a force push; coordinate with anyone
-   who has a clone.
-
-   ```bash
-   pip install git-filter-repo
-   git filter-repo --replace-text <(printf '%s\n' \
-     'regex:eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+==>REDACTED_JWT' \
-     'regex:https://[a-z0-9]{20}\.supabase\.co==>https://REDACTED.supabase.co')
-   git push --force --all && git push --force --tags
-   ```
-
-   After the push, GitHub still caches old blobs for a while. Contact GitHub
-   support to clear them, or simply rely on the rotation in step 1.
+If the key is ever suspected to be abused, rotate it in the Supabase
+dashboard under *Project Settings → API Keys* and update the Vercel env var.
 
 ## Guard rails now in place
 
