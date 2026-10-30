@@ -53,10 +53,10 @@ export const MobileQuickAddSheet: React.FC<MobileQuickAddSheetProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-end justify-center z-50 select-none">
+    <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-end justify-center z-50 select-none">
       <div 
         onClick={(e) => e.stopPropagation()}
-        className="bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 rounded-t-2xl w-full max-w-lg p-5 space-y-4 shadow-2xl animate-in slide-in-from-bottom duration-200"
+        className="bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 rounded-t-2xl w-full max-w-lg px-5 pt-5 pb-8 space-y-5 shadow-2xl"
       >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
@@ -66,7 +66,7 @@ export const MobileQuickAddSheet: React.FC<MobileQuickAddSheetProps> = ({
                 setType('todo');
                 setColor('blue');
               }}
-              className={`px-3 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors ${
                 type === 'todo'
                   ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-xs'
                   : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
@@ -80,7 +80,7 @@ export const MobileQuickAddSheet: React.FC<MobileQuickAddSheetProps> = ({
                 setType('note');
                 setColor('green');
               }}
-              className={`px-3 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors ${
                 type === 'note'
                   ? 'bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-400 shadow-xs'
                   : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
@@ -94,7 +94,7 @@ export const MobileQuickAddSheet: React.FC<MobileQuickAddSheetProps> = ({
                 setType('sticky');
                 setColor('amber');
               }}
-              className={`px-3 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors ${
                 type === 'sticky'
                   ? 'bg-white dark:bg-slate-700 text-amber-600 dark:text-amber-400 shadow-xs'
                   : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
@@ -147,7 +147,7 @@ export const MobileQuickAddSheet: React.FC<MobileQuickAddSheetProps> = ({
           )}
 
           {/* Color bar */}
-          <div className="flex items-center gap-1.5 pt-1">
+          <div className="flex items-center gap-2 pt-1">
             <span className="text-[11px] font-semibold text-slate-500 mr-1">Color:</span>
             {colors.map((c) => (
               <button
@@ -178,7 +178,7 @@ export const MobileQuickAddSheet: React.FC<MobileQuickAddSheetProps> = ({
                 <button
                   type="button"
                   onClick={() => setClusterId(null)}
-                  className={`px-3 py-1 rounded-lg text-xs font-medium shrink-0 border ${
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium shrink-0 border ${
                     clusterId === null
                       ? 'bg-indigo-600 text-white border-indigo-600'
                       : 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300'
@@ -191,7 +191,7 @@ export const MobileQuickAddSheet: React.FC<MobileQuickAddSheetProps> = ({
                     key={cl.id}
                     type="button"
                     onClick={() => setClusterId(cl.id)}
-                    className={`px-3 py-1 rounded-lg text-xs font-medium shrink-0 border ${
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium shrink-0 border ${
                       clusterId === cl.id
                         ? 'bg-indigo-600 text-white border-indigo-600'
                         : 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300'

@@ -55,7 +55,7 @@ export const MiniMap: React.FC<MiniMapProps> = ({
   const vpRectH = (window.innerHeight / viewport.zoom) * worldScale;
 
   return (
-    <div className="hidden sm:flex flex-col items-end gap-2 fixed bottom-5 right-5 z-20 select-none">
+    <div className="hidden sm:flex flex-col items-end gap-2 fixed bottom-6 right-6 z-20 select-none">
       {/* Floating Island Zoom Pills */}
       <div className="flex items-center gap-1 p-1 rounded-2xl bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border border-slate-200/80 dark:border-white/10 shadow-lg text-slate-700 dark:text-slate-200">
         <button

@@ -96,9 +96,9 @@ export const MobileFeedView: React.FC<MobileFeedViewProps> = ({
   const showFloating = !selectedClusterFilter || selectedClusterFilter === 'floating';
 
   return (
-    <div className="w-full h-full overflow-y-auto px-3 sm:px-4 py-3 pb-28 space-y-4 max-w-2xl mx-auto">
+    <div className="w-full h-full overflow-y-auto px-4 sm:px-6 py-5 pb-28 space-y-5 max-w-2xl mx-auto">
       {/* Cluster Navigation Pills */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none select-none">
+      <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none select-none">
         <button
           onClick={() => setSelectedClusterFilter(null)}
           className={`px-3 py-1.5 rounded-full text-xs font-semibold shrink-0 transition-colors ${
@@ -184,7 +184,7 @@ export const MobileFeedView: React.FC<MobileFeedViewProps> = ({
                     e.stopPropagation();
                     onOpenQuickAdd('todo', cluster.id);
                   }}
-                  className="p-1 rounded bg-indigo-600 text-white hover:bg-indigo-700"
+                  className="p-1.5 rounded-md bg-indigo-600 text-white hover:bg-indigo-700"
                   title="Add card"
                 >
                   <Plus className="w-3.5 h-3.5" />
@@ -194,7 +194,7 @@ export const MobileFeedView: React.FC<MobileFeedViewProps> = ({
                     e.stopPropagation();
                     onDeleteCluster(cluster.id);
                   }}
-                  className="p-1 rounded text-slate-400 hover:text-rose-500"
+                  className="p-1.5 rounded-md text-slate-400 hover:text-rose-500"
                   title="Delete cluster"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
@@ -205,7 +205,7 @@ export const MobileFeedView: React.FC<MobileFeedViewProps> = ({
 
             {/* Cluster Cards Body */}
             {!isCollapsed && (
-              <div className="p-3 space-y-3">
+              <div className="p-4 space-y-3">
                 {cards.length === 0 ? (
                   <div className="text-center py-6 text-slate-400 text-xs">
                     No cards in this cluster yet.{' '}
@@ -228,18 +228,18 @@ export const MobileFeedView: React.FC<MobileFeedViewProps> = ({
       {/* Floating Cards (outside any cluster) */}
       {showFloating && floatingCards.length > 0 && (
         <section className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden shadow-xs">
-          <div className="px-4 py-3 flex items-center justify-between border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50">
+          <div className="px-4 py-3 flex items-center justify-between border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900">
             <h3 className="font-bold text-sm text-slate-800 dark:text-slate-100">
               📌 Loose Notes & Tasks
             </h3>
             <button
               onClick={() => onOpenQuickAdd('todo')}
-              className="p-1 rounded bg-indigo-600 text-white"
+              className="p-1.5 rounded-md bg-indigo-600 text-white"
             >
               <Plus className="w-3.5 h-3.5" />
             </button>
           </div>
-          <div className="p-3 space-y-3">
+          <div className="p-4 space-y-3">
             {floatingCards.map((card) => renderMobileCard(card))}
           </div>
         </section>
@@ -256,7 +256,7 @@ export const MobileFeedView: React.FC<MobileFeedViewProps> = ({
     return (
       <div
         key={card.id}
-        className={`rounded-xl border ${colorTheme.border} ${colorTheme.bg} p-3.5 shadow-xs space-y-2`}
+        className={`rounded-xl border ${colorTheme.border} ${colorTheme.bg} p-4 shadow-xs space-y-3`}
       >
         {/* Card Header */}
         <div className="flex items-center justify-between">
@@ -273,7 +273,7 @@ export const MobileFeedView: React.FC<MobileFeedViewProps> = ({
           </div>
           <button
             onClick={() => onDeleteCard(card.id)}
-            className="p-1 rounded text-slate-400 hover:text-rose-500"
+            className="p-1.5 rounded-md text-slate-400 hover:text-rose-500"
           >
             <Trash2 className="w-3.5 h-3.5" />
           </button>
@@ -354,7 +354,7 @@ export const MobileFeedView: React.FC<MobileFeedViewProps> = ({
                 e.preventDefault();
                 handleAddTodoToCard(card);
               }}
-              className="flex items-center gap-2 pt-2 border-t border-black/5 dark:border-white/5"
+              className="flex items-center gap-2 pt-3 border-t border-black/5 dark:border-white/5"
             >
               <input
                 type="text"
@@ -368,7 +368,7 @@ export const MobileFeedView: React.FC<MobileFeedViewProps> = ({
               <button
                 type="submit"
                 disabled={!(newTodoInput[card.id] || '').trim()}
-                className="px-2.5 py-1 text-xs rounded-lg bg-indigo-600 text-white font-medium disabled:opacity-30"
+                className="px-3 py-1.5 text-xs rounded-lg bg-indigo-600 text-white font-medium disabled:opacity-30"
               >
                 Add
               </button>
@@ -419,7 +419,7 @@ export const MobileFeedView: React.FC<MobileFeedViewProps> = ({
                 href={safeHref(bm.url)}
                 target="_blank"
                 rel="noreferrer"
-                className="flex items-center gap-2 p-2 rounded-lg bg-black/5 dark:bg-white/5 text-xs text-indigo-600 dark:text-indigo-400 font-medium"
+                className="flex items-center gap-2 px-3 py-2 rounded-lg bg-black/5 dark:bg-white/5 text-xs text-indigo-600 dark:text-indigo-400 font-medium"
               >
                 <ExternalLink className="w-3.5 h-3.5 shrink-0" />
                 <span className="truncate">{bm.title}</span>

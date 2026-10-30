@@ -108,19 +108,19 @@ export const ClusterView: React.FC<ClusterViewProps> = ({
           <div className="relative">
             <button
               onClick={() => setShowAddMenu(!showAddMenu)}
-              className="p-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white transition-colors shadow-xs"
+              className="p-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white transition-colors shadow-xs"
               title="Add card inside this cluster"
             >
               <Plus className="w-3.5 h-3.5" />
             </button>
             {showAddMenu && (
-              <div className="absolute right-0 top-full mt-1.5 w-44 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl rounded-xl shadow-2xl border border-slate-200 dark:border-white/10 py-1 z-50 text-xs animate-in fade-in zoom-in-95 duration-100">
+              <div className="absolute right-0 top-full mt-1.5 w-44 bg-white dark:bg-slate-900 rounded-xl shadow-xl border border-slate-200 dark:border-slate-800 p-1.5 z-50 text-xs">
                 <button
                   onClick={() => {
                     onAddCardInside(cluster.id, 'todo');
                     setShowAddMenu(false);
                   }}
-                  className="w-full text-left px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-white/5 flex items-center gap-2 text-slate-700 dark:text-slate-200"
+                  className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 text-slate-700 dark:text-slate-200"
                 >
                   <CheckCircle2 className="w-3.5 h-3.5 text-indigo-500" /> Todo Checklist
                 </button>
@@ -129,7 +129,7 @@ export const ClusterView: React.FC<ClusterViewProps> = ({
                     onAddCardInside(cluster.id, 'note');
                     setShowAddMenu(false);
                   }}
-                  className="w-full text-left px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-white/5 flex items-center gap-2 text-slate-700 dark:text-slate-200"
+                  className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 text-slate-700 dark:text-slate-200"
                 >
                   <FilePlus2 className="w-3.5 h-3.5 text-emerald-500" /> Unstructured Note
                 </button>
@@ -138,7 +138,7 @@ export const ClusterView: React.FC<ClusterViewProps> = ({
                     onAddCardInside(cluster.id, 'sticky');
                     setShowAddMenu(false);
                   }}
-                  className="w-full text-left px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-white/5 flex items-center gap-2 text-slate-700 dark:text-slate-200"
+                  className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 text-slate-700 dark:text-slate-200"
                 >
                   <StickyNote className="w-3.5 h-3.5 text-amber-500" /> Sticky Note
                 </button>
@@ -150,13 +150,13 @@ export const ClusterView: React.FC<ClusterViewProps> = ({
           <div className="relative">
             <button
               onClick={() => setShowColorPicker(!showColorPicker)}
-              className="p-1 rounded-md hover:bg-black/5 dark:hover:bg-white/10 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
+              className="p-1.5 rounded-md hover:bg-black/5 dark:hover:bg-white/10 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
               title="Change cluster tint"
             >
               <Palette className="w-3.5 h-3.5" />
             </button>
             {showColorPicker && (
-              <div className="absolute right-0 top-full mt-1.5 p-2 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl rounded-xl shadow-2xl border border-slate-200 dark:border-white/10 flex gap-1.5 z-50 animate-in fade-in zoom-in-95 duration-100">
+              <div className="absolute right-0 top-full mt-1.5 p-2 bg-white dark:bg-slate-900 rounded-xl shadow-xl border border-slate-200 dark:border-slate-800 flex gap-1.5 z-50">
                 {colors.map((c) => (
                   <button
                     key={c}
@@ -184,7 +184,7 @@ export const ClusterView: React.FC<ClusterViewProps> = ({
           {/* Collapse/Expand */}
           <button
             onClick={() => onUpdate({ collapsed: !cluster.collapsed })}
-            className="p-1 rounded-md hover:bg-black/5 dark:hover:bg-white/10 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
+            className="p-1.5 rounded-md hover:bg-black/5 dark:hover:bg-white/10 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
             title={cluster.collapsed ? 'Expand' : 'Collapse'}
           >
             {cluster.collapsed ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronUp className="w-3.5 h-3.5" />}
@@ -193,7 +193,7 @@ export const ClusterView: React.FC<ClusterViewProps> = ({
           {/* Delete cluster */}
           <button
             onClick={onDelete}
-            className="p-1 rounded-md hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/60 dark:hover:text-rose-400 text-slate-400 transition-colors"
+            className="p-1.5 rounded-md hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/60 dark:hover:text-rose-400 text-slate-400 transition-colors"
             title="Delete cluster container"
           >
             <Trash2 className="w-3.5 h-3.5" />

@@ -172,7 +172,7 @@ export const CardView: React.FC<CardViewProps> = ({
       {/* Designer Card Header */}
       <div
         onMouseDown={(e) => onStartDrag(e, card.id)}
-        className={`flex items-center justify-between px-3.5 py-2.5 cursor-grab active:cursor-grabbing border-b ${colorTheme.border} ${colorTheme.header} select-none`}
+        className={`flex items-center justify-between px-4 py-3 cursor-grab active:cursor-grabbing border-b ${colorTheme.border} ${colorTheme.header} select-none`}
       >
         <div className="flex items-center gap-1.5 flex-1 min-w-0 mr-2">
           <GripVertical className="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-300 shrink-0 transition-colors" />
@@ -197,13 +197,13 @@ export const CardView: React.FC<CardViewProps> = ({
           <div className="relative">
             <button
               onClick={() => setShowColorPicker(!showColorPicker)}
-              className="p-1 rounded-md hover:bg-black/5 dark:hover:bg-white/10 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
+              className="p-1.5 rounded-md hover:bg-black/5 dark:hover:bg-white/10 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
               title="Change tint"
             >
               <Palette className="w-3.5 h-3.5" />
             </button>
             {showColorPicker && (
-              <div className="absolute right-0 top-full mt-1.5 p-2 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl rounded-xl shadow-2xl border border-slate-200 dark:border-white/10 flex gap-1.5 z-50 animate-in fade-in zoom-in-95 duration-100">
+              <div className="absolute right-0 top-full mt-1.5 p-2 bg-white dark:bg-slate-900 rounded-xl shadow-xl border border-slate-200 dark:border-slate-800 flex gap-1.5 z-50">
                 {colors.map((c) => (
                   <button
                     key={c}
@@ -232,24 +232,24 @@ export const CardView: React.FC<CardViewProps> = ({
           <div className="relative">
             <button
               onClick={() => setShowMenu(!showMenu)}
-              className="p-1 rounded-md hover:bg-black/5 dark:hover:bg-white/10 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
+              className="p-1.5 rounded-md hover:bg-black/5 dark:hover:bg-white/10 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
             >
               <MoreHorizontal className="w-3.5 h-3.5" />
             </button>
             {showMenu && (
-              <div className="absolute right-0 top-full mt-1.5 w-44 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl rounded-xl shadow-2xl border border-slate-200 dark:border-white/10 py-1 z-50 text-xs">
+              <div className="absolute right-0 top-full mt-1.5 w-44 bg-white dark:bg-slate-900 rounded-xl shadow-xl border border-slate-200 dark:border-slate-800 p-1.5 z-50 text-xs">
                 <button
                   onClick={() => {
                     onDuplicate();
                     setShowMenu(false);
                   }}
-                  className="w-full text-left px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-white/5 flex items-center gap-2 text-slate-700 dark:text-slate-200"
+                  className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 text-slate-700 dark:text-slate-200"
                 >
                   <Copy className="w-3.5 h-3.5" /> Duplicate Card
                 </button>
 
                 {/* Move to Cluster */}
-                <div className="px-3 py-1 font-semibold text-[10px] text-slate-400 uppercase tracking-wider border-t border-slate-100 dark:border-white/[0.08] mt-1">
+                <div className="px-3 py-1 font-semibold text-[10px] text-slate-400 uppercase tracking-wider border-t border-slate-100 dark:border-slate-800 mt-1.5 pt-2">
                   Assign Cluster
                 </div>
                 <button
@@ -257,7 +257,7 @@ export const CardView: React.FC<CardViewProps> = ({
                     onUpdate({ clusterId: null });
                     setShowMenu(false);
                   }}
-                  className={`w-full text-left px-3 py-1 hover:bg-slate-100 dark:hover:bg-white/5 flex items-center gap-2 ${
+                  className={`w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 ${
                     !card.clusterId ? 'text-indigo-600 font-semibold' : 'text-slate-700 dark:text-slate-300'
                   }`}
                 >
@@ -270,7 +270,7 @@ export const CardView: React.FC<CardViewProps> = ({
                       onUpdate({ clusterId: cl.id });
                       setShowMenu(false);
                     }}
-                    className={`w-full text-left px-3 py-1 hover:bg-slate-100 dark:hover:bg-white/5 flex items-center gap-2 truncate ${
+                    className={`w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 truncate ${
                       card.clusterId === cl.id ? 'text-indigo-600 font-semibold' : 'text-slate-700 dark:text-slate-300'
                     }`}
                   >
@@ -284,7 +284,7 @@ export const CardView: React.FC<CardViewProps> = ({
                     onDelete();
                     setShowMenu(false);
                   }}
-                  className="w-full text-left px-3 py-1.5 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-600 dark:text-rose-400 flex items-center gap-2 border-t border-slate-100 dark:border-white/[0.08] mt-1"
+                  className="w-full text-left px-3 py-2 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-500/10 text-rose-600 dark:text-rose-400 flex items-center gap-2 border-t border-slate-100 dark:border-slate-800 mt-1.5 pt-2"
                 >
                   <Trash2 className="w-3.5 h-3.5" /> Delete Card
                 </button>
@@ -296,7 +296,7 @@ export const CardView: React.FC<CardViewProps> = ({
 
       {/* Tags section */}
       <div
-        className="px-3.5 pt-2 flex flex-wrap items-center gap-1.5"
+        className="px-4 pt-3 flex flex-wrap items-center gap-1.5"
         onClick={(e) => e.stopPropagation()}
         onMouseDown={(e) => e.stopPropagation()}
       >
@@ -344,7 +344,7 @@ export const CardView: React.FC<CardViewProps> = ({
 
       {/* Card Body */}
       <div
-        className="p-3.5 flex-1 flex flex-col"
+        className="p-4 flex-1 flex flex-col"
         onClick={(e) => e.stopPropagation()}
         onMouseDown={(e) => e.stopPropagation()}
       >
@@ -372,7 +372,7 @@ export const CardView: React.FC<CardViewProps> = ({
               {(card.todos || []).map((todo) => (
                 <div
                   key={todo.id}
-                  className="group/item flex items-center gap-2.5 text-xs rounded-xl p-1.5 hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+                  className="group/item flex items-center gap-2.5 text-xs rounded-lg px-2 py-1.5 hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
                 >
                   {/* Custom Squircle Checkbox */}
                   <button
@@ -425,7 +425,7 @@ export const CardView: React.FC<CardViewProps> = ({
 
                   <button
                     onClick={() => handleDeleteTodo(todo.id)}
-                    className="opacity-0 group-hover/item:opacity-100 text-slate-400 hover:text-rose-500 p-0.5 transition-opacity"
+                    className="opacity-0 group-hover/item:opacity-100 text-slate-400 hover:text-rose-500 p-1 rounded-md transition-opacity"
                   >
                     <Trash2 className="w-3 h-3" />
                   </button>
@@ -434,7 +434,7 @@ export const CardView: React.FC<CardViewProps> = ({
             </div>
 
             {/* Quick Add input */}
-            <form onSubmit={handleAddTodo} className="flex items-center gap-1.5 mt-2 pt-2 border-t border-black/5 dark:border-white/5">
+            <form onSubmit={handleAddTodo} className="flex items-center gap-2 mt-3 pt-3 border-t border-black/5 dark:border-white/5">
               <Plus className="w-3.5 h-3.5 text-slate-400 shrink-0" />
               <input
                 type="text"
@@ -446,7 +446,7 @@ export const CardView: React.FC<CardViewProps> = ({
               <button
                 type="submit"
                 disabled={!newTodoText.trim()}
-                className="text-xs px-2.5 py-1 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-30 shrink-0 font-semibold shadow-xs"
+                className="text-xs px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-30 shrink-0 font-semibold shadow-xs"
               >
                 Add
               </button>
@@ -516,7 +516,7 @@ export const CardView: React.FC<CardViewProps> = ({
               {(card.bookmarks || []).map((bm) => (
                 <div
                   key={bm.id}
-                  className="flex items-center justify-between gap-2 p-2 rounded-xl bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 group/link transition-colors"
+                  className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 group/link transition-colors"
                 >
                   <a
                     href={safeHref(bm.url)}
@@ -533,7 +533,7 @@ export const CardView: React.FC<CardViewProps> = ({
                         bookmarks: (card.bookmarks || []).filter((b) => b.id !== bm.id),
                       });
                     }}
-                    className="opacity-0 group-hover/link:opacity-100 text-slate-400 hover:text-rose-500 p-0.5 transition-opacity"
+                    className="opacity-0 group-hover/link:opacity-100 text-slate-400 hover:text-rose-500 p-1 rounded-md transition-opacity"
                   >
                     <Trash2 className="w-3 h-3" />
                   </button>
@@ -542,32 +542,32 @@ export const CardView: React.FC<CardViewProps> = ({
             </div>
 
             {showAddBookmark ? (
-              <form onSubmit={handleAddBookmark} className="space-y-1.5 pt-2 border-t border-black/5 dark:border-white/5">
+              <form onSubmit={handleAddBookmark} className="space-y-2 pt-3 border-t border-black/5 dark:border-white/5">
                 <input
                   type="text"
                   placeholder="Link Title (e.g. Wi-Fi Portal)"
                   value={newBookmarkTitle}
                   onChange={(e) => setNewBookmarkTitle(e.target.value)}
-                  className="w-full text-xs px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-300 dark:border-white/15 outline-none text-slate-800 dark:text-slate-100"
+                  className="w-full text-xs px-3 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 outline-none text-slate-800 dark:text-slate-100"
                 />
                 <input
                   type="text"
                   placeholder="URL or phone (https://... or tel:...)"
                   value={newBookmarkUrl}
                   onChange={(e) => setNewBookmarkUrl(e.target.value)}
-                  className="w-full text-xs px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-300 dark:border-white/15 outline-none text-slate-800 dark:text-slate-100"
+                  className="w-full text-xs px-3 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 outline-none text-slate-800 dark:text-slate-100"
                 />
                 <div className="flex justify-end gap-1.5">
                   <button
                     type="button"
                     onClick={() => setShowAddBookmark(false)}
-                    className="text-xs px-2.5 py-1 text-slate-400 hover:text-slate-600"
+                    className="text-xs px-3 py-1.5 text-slate-400 hover:text-slate-600"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
-                    className="text-xs px-3 py-1 bg-indigo-600 text-white rounded-lg font-semibold shadow-xs"
+                    className="text-xs px-3 py-1.5 bg-indigo-600 text-white rounded-lg font-semibold shadow-xs"
                   >
                     Save Link
                   </button>
@@ -576,7 +576,7 @@ export const CardView: React.FC<CardViewProps> = ({
             ) : (
               <button
                 onClick={() => setShowAddBookmark(true)}
-                className="w-full flex items-center justify-center gap-1.5 py-1.5 text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 border border-dashed border-slate-300 dark:border-white/15 rounded-xl hover:border-slate-400 transition-colors"
+                className="w-full flex items-center justify-center gap-1.5 py-2 text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 border border-dashed border-slate-300 dark:border-white/15 rounded-xl hover:border-slate-400 transition-colors"
               >
                 <Plus className="w-3.5 h-3.5" /> Add Link
               </button>
