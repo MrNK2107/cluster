@@ -1,6 +1,7 @@
 import type { WorkspaceData, BoardDocument } from '../types';
+import { sanitizeWorkspace } from './validate';
 
-const STORAGE_KEY = 'clustr_workspace_v1';
+const LEGACY_STORAGE_KEY = 'clustr_workspace_v1';
 
 export const COLOR_MAP: Record<string, { 
   bg: string; 
@@ -12,75 +13,75 @@ export const COLOR_MAP: Record<string, {
   accent: string;
 }> = {
   default: {
-    bg: 'bg-white/90 dark:bg-slate-900/90 backdrop-blur-md',
-    border: 'border-slate-200/80 dark:border-white/[0.08]',
-    badge: 'bg-slate-100 text-slate-700 dark:bg-white/10 dark:text-slate-300',
+    bg: 'bg-white dark:bg-slate-900',
+    border: 'border-slate-200 dark:border-slate-800',
+    badge: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300',
     text: 'text-slate-900 dark:text-slate-100',
-    header: 'bg-slate-50/70 dark:bg-slate-800/40',
-    glow: 'hover:border-slate-400/50 dark:hover:border-white/20',
+    header: 'bg-slate-50 dark:bg-slate-800/50',
+    glow: 'hover:border-slate-300 dark:hover:border-slate-700',
     accent: '#64748b',
   },
   blue: {
-    bg: 'bg-sky-50/75 dark:bg-sky-950/30 backdrop-blur-md',
-    border: 'border-sky-200/80 dark:border-sky-800/50',
-    badge: 'bg-sky-100/80 text-sky-800 dark:bg-sky-900/60 dark:text-sky-200',
+    bg: 'bg-sky-50 dark:bg-slate-900',
+    border: 'border-sky-200 dark:border-sky-500/25',
+    badge: 'bg-sky-100 text-sky-800 dark:bg-sky-500/15 dark:text-sky-300',
     text: 'text-sky-950 dark:text-sky-100',
-    header: 'bg-sky-100/60 dark:bg-sky-900/30',
-    glow: 'hover:border-sky-400/60 dark:hover:border-sky-500/50',
+    header: 'bg-sky-100/70 dark:bg-sky-500/10',
+    glow: 'hover:border-sky-300 dark:hover:border-sky-500/50',
     accent: '#0ea5e9',
   },
   green: {
-    bg: 'bg-emerald-50/75 dark:bg-emerald-950/30 backdrop-blur-md',
-    border: 'border-emerald-200/80 dark:border-emerald-800/50',
-    badge: 'bg-emerald-100/80 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-200',
+    bg: 'bg-emerald-50 dark:bg-slate-900',
+    border: 'border-emerald-200 dark:border-emerald-500/25',
+    badge: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300',
     text: 'text-emerald-950 dark:text-emerald-100',
-    header: 'bg-emerald-100/60 dark:bg-emerald-900/30',
-    glow: 'hover:border-emerald-400/60 dark:hover:border-emerald-500/50',
+    header: 'bg-emerald-100/70 dark:bg-emerald-500/10',
+    glow: 'hover:border-emerald-300 dark:hover:border-emerald-500/50',
     accent: '#10b981',
   },
   yellow: {
-    bg: 'bg-amber-50/75 dark:bg-amber-950/30 backdrop-blur-md',
-    border: 'border-amber-200/80 dark:border-amber-800/50',
-    badge: 'bg-amber-100/80 text-amber-800 dark:bg-amber-900/60 dark:text-amber-200',
+    bg: 'bg-amber-50 dark:bg-slate-900',
+    border: 'border-amber-200 dark:border-amber-500/25',
+    badge: 'bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300',
     text: 'text-amber-950 dark:text-amber-100',
-    header: 'bg-amber-100/60 dark:bg-amber-900/30',
-    glow: 'hover:border-amber-400/60 dark:hover:border-amber-500/50',
+    header: 'bg-amber-100/70 dark:bg-amber-500/10',
+    glow: 'hover:border-amber-300 dark:hover:border-amber-500/50',
     accent: '#f59e0b',
   },
   purple: {
-    bg: 'bg-violet-50/75 dark:bg-violet-950/30 backdrop-blur-md',
-    border: 'border-violet-200/80 dark:border-violet-800/50',
-    badge: 'bg-violet-100/80 text-violet-800 dark:bg-violet-900/60 dark:text-violet-200',
+    bg: 'bg-violet-50 dark:bg-slate-900',
+    border: 'border-violet-200 dark:border-violet-500/25',
+    badge: 'bg-violet-100 text-violet-800 dark:bg-violet-500/15 dark:text-violet-300',
     text: 'text-violet-950 dark:text-violet-100',
-    header: 'bg-violet-100/60 dark:bg-violet-900/30',
-    glow: 'hover:border-violet-400/60 dark:hover:border-violet-500/50',
+    header: 'bg-violet-100/70 dark:bg-violet-500/10',
+    glow: 'hover:border-violet-300 dark:hover:border-violet-500/50',
     accent: '#8b5cf6',
   },
   pink: {
-    bg: 'bg-pink-50/75 dark:bg-pink-950/30 backdrop-blur-md',
-    border: 'border-pink-200/80 dark:border-pink-800/50',
-    badge: 'bg-pink-100/80 text-pink-800 dark:bg-pink-900/60 dark:text-pink-200',
+    bg: 'bg-pink-50 dark:bg-slate-900',
+    border: 'border-pink-200 dark:border-pink-500/25',
+    badge: 'bg-pink-100 text-pink-800 dark:bg-pink-500/15 dark:text-pink-300',
     text: 'text-pink-950 dark:text-pink-100',
-    header: 'bg-pink-100/60 dark:bg-pink-900/30',
-    glow: 'hover:border-pink-400/60 dark:hover:border-pink-500/50',
+    header: 'bg-pink-100/70 dark:bg-pink-500/10',
+    glow: 'hover:border-pink-300 dark:hover:border-pink-500/50',
     accent: '#ec4899',
   },
   amber: {
-    bg: 'bg-orange-50/75 dark:bg-orange-950/30 backdrop-blur-md',
-    border: 'border-orange-200/80 dark:border-orange-800/50',
-    badge: 'bg-orange-100/80 text-orange-800 dark:bg-orange-900/60 dark:text-orange-200',
+    bg: 'bg-orange-50 dark:bg-slate-900',
+    border: 'border-orange-200 dark:border-orange-500/25',
+    badge: 'bg-orange-100 text-orange-800 dark:bg-orange-500/15 dark:text-orange-300',
     text: 'text-orange-950 dark:text-orange-100',
-    header: 'bg-orange-100/60 dark:bg-orange-900/30',
-    glow: 'hover:border-orange-400/60 dark:hover:border-orange-500/50',
+    header: 'bg-orange-100/70 dark:bg-orange-500/10',
+    glow: 'hover:border-orange-300 dark:hover:border-orange-500/50',
     accent: '#f97316',
   },
   rose: {
-    bg: 'bg-rose-50/75 dark:bg-rose-950/30 backdrop-blur-md',
-    border: 'border-rose-200/80 dark:border-rose-800/50',
-    badge: 'bg-rose-100/80 text-rose-800 dark:bg-rose-900/60 dark:text-rose-200',
+    bg: 'bg-rose-50 dark:bg-slate-900',
+    border: 'border-rose-200 dark:border-rose-500/25',
+    badge: 'bg-rose-100 text-rose-800 dark:bg-rose-500/15 dark:text-rose-300',
     text: 'text-rose-950 dark:text-rose-100',
-    header: 'bg-rose-100/60 dark:bg-rose-900/30',
-    glow: 'hover:border-rose-400/60 dark:hover:border-rose-500/50',
+    header: 'bg-rose-100/70 dark:bg-rose-500/10',
+    glow: 'hover:border-rose-300 dark:hover:border-rose-500/50',
     accent: '#f43f5e',
   },
 };
@@ -311,34 +312,34 @@ export const INITIAL_DOCUMENTS: BoardDocument[] = [
   },
 ];
 
-export function loadWorkspace(): WorkspaceData {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (parsed && Array.isArray(parsed.documents) && parsed.documents.length > 0) {
-        return parsed;
-      }
-    }
-  } catch (e) {
-    console.error('Failed to parse workspace from localStorage', e);
-  }
-
-  const initial: WorkspaceData = {
+export function createStarterWorkspace(): WorkspaceData {
+  return {
     version: 1,
     activeDocId: INITIAL_DOCUMENTS[0].id,
     documents: INITIAL_DOCUMENTS,
     theme: 'dark',
   };
-  saveWorkspace(initial);
-  return initial;
 }
 
-export function saveWorkspace(data: WorkspaceData): void {
+/**
+ * Workspaces used to live in this browser only. Read that copy once so the
+ * first sign-in can carry it into the account instead of the starter data.
+ */
+export function readLegacyLocalWorkspace(): WorkspaceData | null {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-  } catch (e) {
-    console.error('Failed to save workspace', e);
+    const raw = localStorage.getItem(LEGACY_STORAGE_KEY);
+    return raw ? sanitizeWorkspace(JSON.parse(raw)) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function clearLegacyLocalWorkspace(): void {
+  try {
+    localStorage.removeItem(LEGACY_STORAGE_KEY);
+    indexedDB.deleteDatabase('ClustrDB');
+  } catch {
+    // Nothing to clean up.
   }
 }
 
@@ -348,16 +349,6 @@ export function exportWorkspaceJSON(data: WorkspaceData): void {
   const a = document.createElement('a');
   a.href = url;
   a.download = `clustr-backup-${new Date().toISOString().split('T')[0]}.json`;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-export function exportDocumentJSON(doc: BoardDocument): void {
-  const blob = new Blob([JSON.stringify(doc, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `${doc.title.replace(/[^a-zA-Z0-9_-]/g, '_')}-${new Date().toISOString().split('T')[0]}.json`;
   a.click();
   URL.revokeObjectURL(url);
 }

@@ -7,8 +7,7 @@ import {
   Layers,
   Moon,
   Sun,
-  Cloud,
-  Share2,
+  UserRound,
   Map,
   LayoutGrid,
   FolderOpen
@@ -27,8 +26,7 @@ interface CommandPaletteProps {
   onAddCluster: () => void;
   onToggleTheme: () => void;
   onToggleViewMode: () => void;
-  onOpenSupabase: () => void;
-  onOpenShare: () => void;
+  onOpenAccount: () => void;
   onFocusCard: (cardId: string) => void;
 }
 
@@ -54,8 +52,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
   onAddCluster,
   onToggleTheme,
   onToggleViewMode,
-  onOpenSupabase,
-  onOpenShare,
+  onOpenAccount,
   onFocusCard,
 }) => {
   const [query, setQuery] = useState('');
@@ -135,19 +132,11 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
       perform: () => onToggleTheme(),
     },
     {
-      id: 'action-supabase',
+      id: 'action-account',
       category: 'Quick Actions',
-      title: 'Cloud Sync & Account',
-      icon: Cloud,
-      perform: () => onOpenSupabase(),
-    },
-    {
-      id: 'action-share',
-      category: 'Quick Actions',
-      title: 'Export & Share',
-      icon: Share2,
-      shortcut: 'E',
-      perform: () => onOpenShare(),
+      title: 'Account',
+      icon: UserRound,
+      perform: () => onOpenAccount(),
     },
   ];
 
@@ -207,14 +196,14 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
   return (
     <div
       onClick={onClose}
-      className="fixed inset-0 bg-black/60 backdrop-blur-md flex items-start justify-center pt-20 px-4 z-50 select-none animate-in fade-in duration-150"
+      className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-start justify-center pt-20 px-4 z-50 select-none"
     >
       <div
         onClick={(e) => e.stopPropagation()}
         className="bg-white/95 dark:bg-slate-900/95 border border-slate-200 dark:border-white/10 rounded-2xl shadow-2xl max-w-xl w-full overflow-hidden flex flex-col max-h-[70vh] glass-panel"
       >
         {/* Search Input Bar */}
-        <div className="flex items-center px-4 py-3.5 border-b border-slate-200 dark:border-white/[0.08] gap-3">
+        <div className="flex items-center px-5 py-4 border-b border-slate-200 dark:border-slate-800 gap-3">
           <Search className="w-4 h-4 text-slate-400 shrink-0" />
           <input
             ref={inputRef}
@@ -234,7 +223,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
         </div>
 
         {/* Results List */}
-        <div className="p-2 overflow-y-auto space-y-1 flex-1">
+        <div className="p-3 overflow-y-auto space-y-1 flex-1">
           {filtered.length === 0 ? (
             <div className="py-12 text-center text-slate-400 text-xs">
               No results found for "{query}".
@@ -300,7 +289,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="px-4 py-2 border-t border-slate-100 dark:border-white/[0.06] bg-slate-50/50 dark:bg-white/[0.02] flex items-center justify-between text-[11px] text-slate-400">
+        <div className="px-5 py-3 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-white/[0.02] flex items-center justify-between text-[11px] text-slate-400">
           <div className="flex items-center gap-3">
             <span>↑↓ to navigate</span>
             <span>↵ to select</span>

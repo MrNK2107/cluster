@@ -1,74 +1,48 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import type {
   WorkspaceData,
   BoardDocument,
   CardData,
   Cluster,
-  Connection,
   CardType,
   CardColor
 } from './types';
 import {
-  loadWorkspaceFromDB,
-  saveWorkspaceToDB
-} from './utils/db';
-import {
   INITIAL_DOCUMENTS,
+  createStarterWorkspace,
+  readLegacyLocalWorkspace,
+  clearLegacyLocalWorkspace,
   exportWorkspaceJSON
 } from './utils/storage';
 import {
-  getCurrentUserEmail,
+  subscribeToAuth,
+  signOut,
   fetchCloudWorkspace,
-  syncWorkspaceToSupabase,
+  saveCloudWorkspace,
+  isCloudConfigured,
+  type AuthUser,
 } from './utils/supabase';
-import { sanitizeDocument, sanitizeWorkspace } from './utils/validate';
+import { sanitizeWorkspace } from './utils/validate';
 import { Sidebar } from './components/Sidebar';
 import { TopBar } from './components/TopBar';
 import { Canvas } from './components/Canvas';
 import { MobileFeedView } from './components/MobileFeedView';
 import { MobileQuickAddSheet } from './components/MobileQuickAddSheet';
-import { ShareModal } from './components/ShareModal';
 import { TemplatesModal } from './components/TemplatesModal';
-import { SupabaseModal } from './components/SupabaseModal';
+import { AccountModal } from './components/AccountModal';
+import { AuthScreen, WorkspaceLoading } from './components/AuthScreen';
 import { CommandPalette } from './components/CommandPalette';
 import { MiniMap } from './components/MiniMap';
 import { Plus, FileText, Map, LayoutGrid } from 'lucide-react';
 
-/**
- * Snapshot links (#doc=...) carry a whole document. Read it once, strip the
- * hash so the payload does not linger in history, and validate it.
- */
-function readSnapshotFromHash(): BoardDocument | null {
-  if (!window.location.hash.startsWith('#doc=')) return null;
-  const encoded = window.location.hash.slice('#doc='.length);
-  window.history.replaceState(null, '', window.location.pathname + window.location.search);
-  try {
-    return sanitizeDocument(JSON.parse(decodeURIComponent(atob(encoded))));
-  } catch {
-    return null; // Malformed link: the user still has their own data.
-  }
-}
+export type SaveState = 'saved' | 'saving' | 'error';
 
-/** Adds a shared document without ever overwriting an existing space. */
-function mergeSharedDocument(ws: WorkspaceData, shared: BoardDocument): WorkspaceData {
-  const exists = ws.documents.some((d) => d.id === shared.id);
-  const incoming: BoardDocument = exists
-    ? {
-        ...shared,
-        id: `doc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        title: `${shared.title} (Shared)`,
-      }
-    : shared;
-  return { ...ws, activeDocId: incoming.id, documents: [incoming, ...ws.documents] };
-}
+/** Debounce before an edit is written to the database. */
+const SAVE_DELAY_MS = 600;
+const SAVE_RETRY_MS = 5000;
 
 export const App: React.FC = () => {
-  const [workspace, setWorkspace] = useState<WorkspaceData>({
-    version: 1,
-    activeDocId: INITIAL_DOCUMENTS[0].id,
-    documents: INITIAL_DOCUMENTS,
-    theme: 'dark',
-  });
+  const [workspace, setWorkspace] = useState<WorkspaceData>(createStarterWorkspace);
 
   const [viewMode, setViewMode] = useState<'canvas' | 'feed'>(() => {
     return typeof window !== 'undefined' && window.innerWidth < 768 ? 'feed' : 'canvas';
@@ -78,39 +52,164 @@ export const App: React.FC = () => {
     return typeof window !== 'undefined' && window.innerWidth >= 768;
   });
 
-  const [connectMode, setConnectMode] = useState(false);
   const [activeTagFilter, setActiveTagFilter] = useState<string | null>(null);
-  const [shareModalOpen, setShareModalOpen] = useState(false);
   const [templatesModalOpen, setTemplatesModalOpen] = useState(false);
-  const [supabaseModalOpen, setSupabaseModalOpen] = useState(false);
+  const [accountModalOpen, setAccountModalOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
 
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [quickAddType, setQuickAddType] = useState<CardType>('todo');
   const [quickAddClusterId, setQuickAddClusterId] = useState<string | null>(null);
 
-  const [isCloudSynced, setIsCloudSynced] = useState(false);
+  // undefined = auth state not known yet, null = signed out.
+  const [user, setUser] = useState<AuthUser | null | undefined>(isCloudConfigured ? undefined : null);
+  const userId = user?.id ?? null;
+  const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+  const [saveState, setSaveState] = useState<SaveState>('saved');
 
-  // Load from IndexedDB on initial mount, then merge in any snapshot link.
-  // The merge must wait for the DB load, otherwise the stored workspace would
-  // overwrite the freshly imported document.
+  // The database is the source of truth. `lastSavedRef` holds the JSON of the
+  // copy the database has (null while nothing is loaded), so only real
+  // changes are written.
+  const workspaceRef = useRef(workspace);
+  const lastSavedRef = useRef<string | null>(null);
+  const savingRef = useRef(false);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
-    let cancelled = false;
-    async function init() {
-      const stored = await loadWorkspaceFromDB();
-      if (cancelled) return;
-      const shared = readSnapshotFromHash();
-      setWorkspace(shared ? mergeSharedDocument(stored, shared) : stored);
-      void checkSupabase();
-    }
-    void init();
+    workspaceRef.current = workspace;
+  }, [workspace]);
+
+  // Track the signed-in account.
+  useEffect(() => {
+    let active = true;
+    let unsubscribe = () => {};
+    void subscribeToAuth(setUser).then((unsub) => {
+      if (active) unsubscribe = unsub;
+      else unsub();
+    });
     return () => {
-      cancelled = true;
+      active = false;
+      unsubscribe();
     };
   }, []);
 
-  const checkSupabase = async () => {
-    setIsCloudSynced((await getCurrentUserEmail()) !== null);
+  // Load the account's workspace. A brand-new account starts from whatever was
+  // kept in this browser before accounts existed, or from the starter spaces.
+  useEffect(() => {
+    setLoaded(false);
+    setLoadError(null);
+    lastSavedRef.current = null;
+    if (!userId) {
+      setWorkspace(createStarterWorkspace());
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const res = await fetchCloudWorkspace();
+      if (cancelled) return;
+      if (res.error) {
+        setLoadError(res.error);
+        return;
+      }
+      let ws = res.data;
+      if (!ws) {
+        ws = readLegacyLocalWorkspace() ?? createStarterWorkspace();
+        const created = await saveCloudWorkspace(ws);
+        if (cancelled) return;
+        if (!created.success) {
+          setLoadError(created.error ?? 'Could not create your workspace. Please try again.');
+          return;
+        }
+        clearLegacyLocalWorkspace();
+      }
+      lastSavedRef.current = JSON.stringify(ws);
+      setWorkspace(ws);
+      setSaveState('saved');
+      setLoaded(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [userId, reloadKey]);
+
+  /** Writes the latest workspace to the database, one request at a time. */
+  const flushSave = useCallback(async function flush(): Promise<void> {
+    if (savingRef.current || lastSavedRef.current === null) return;
+    if (retryTimerRef.current) {
+      clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
+    const snapshot = workspaceRef.current;
+    const json = JSON.stringify(snapshot);
+    if (json === lastSavedRef.current) {
+      setSaveState('saved');
+      return;
+    }
+    savingRef.current = true;
+    setSaveState('saving');
+    const res = await saveCloudWorkspace(snapshot);
+    savingRef.current = false;
+    if (lastSavedRef.current === null) return; // Signed out meanwhile.
+    if (!res.success) {
+      setSaveState('error');
+      retryTimerRef.current = setTimeout(() => void flush(), SAVE_RETRY_MS);
+      return;
+    }
+    lastSavedRef.current = json;
+    // Edits made while the request was in flight go out right away.
+    if (JSON.stringify(workspaceRef.current) !== json) await flush();
+    else setSaveState('saved');
+  }, []);
+
+  // Every change is saved shortly after it is made.
+  useEffect(() => {
+    if (!loaded || JSON.stringify(workspace) === lastSavedRef.current) return;
+    setSaveState('saving');
+    const timer = setTimeout(() => void flushSave(), SAVE_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [workspace, loaded, flushSave]);
+
+  // Save when the tab is hidden, pick up edits made on other devices when it
+  // comes back, and warn before closing with unsaved changes.
+  useEffect(() => {
+    if (!loaded) return;
+    const isDirty = () => savingRef.current || JSON.stringify(workspaceRef.current) !== lastSavedRef.current;
+
+    const onVisibility = async () => {
+      if (document.visibilityState === 'hidden') {
+        void flushSave();
+        return;
+      }
+      if (isDirty()) return;
+      const res = await fetchCloudWorkspace();
+      if (!res.data || isDirty() || lastSavedRef.current === null) return;
+      const json = JSON.stringify(res.data);
+      if (json === lastSavedRef.current) return;
+      lastSavedRef.current = json;
+      setWorkspace(res.data);
+    };
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (!isDirty()) return;
+      void flushSave();
+      e.preventDefault();
+    };
+
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('focus', onVisibility);
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('focus', onVisibility);
+      window.removeEventListener('beforeunload', onBeforeUnload);
+    };
+  }, [loaded, flushSave]);
+
+  const handleSignOut = async () => {
+    await flushSave();
+    lastSavedRef.current = null;
+    if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+    await signOut();
   };
 
   // Global keydown for Cmd+K / Ctrl+K
@@ -125,12 +224,7 @@ export const App: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // Save changes to IndexedDB
-  useEffect(() => {
-    saveWorkspaceToDB(workspace);
-  }, [workspace]);
-
-  // Sync Dark/Light theme class
+  // Apply the Dark/Light theme class
   useEffect(() => {
     if (workspace.theme === 'dark') {
       document.documentElement.classList.add('dark');
@@ -338,20 +432,6 @@ export const App: React.FC = () => {
   };
 
   // Connection Handlers
-  const handleAddConnection = (fromId: string, toId: string) => {
-    const newConn: Connection = {
-      id: `conn-${Date.now()}`,
-      fromId,
-      toId,
-      label: 'relates to',
-    };
-    updateActiveDocument((doc) => ({
-      ...doc,
-      connections: [...doc.connections, newConn],
-    }));
-    setConnectMode(false);
-  };
-
   const handleDeleteConnection = (connId: string) => {
     updateActiveDocument((doc) => ({
       ...doc,
@@ -399,33 +479,26 @@ export const App: React.FC = () => {
     handlePanTo(targetX, targetY);
   };
 
-  // Supabase Cloud Sync
-  const handleSyncPushToSupabase = async () => {
-    const res = await syncWorkspaceToSupabase(workspace);
-    if (!res.success) {
-      throw new Error(res.error || 'Failed to sync');
-    }
-    setIsCloudSynced(true);
-  };
-
-  const handleSyncPullFromSupabase = async () => {
-    const res = await fetchCloudWorkspace();
-    if (res.data) {
-      setWorkspace(res.data);
-      setIsCloudSynced(true);
-    } else {
-      throw new Error(res.error || 'No cloud workspace found');
-    }
-  };
+  if (user === undefined) return <WorkspaceLoading />;
+  if (!user) return <AuthScreen />;
+  if (!loaded) {
+    return (
+      <WorkspaceLoading
+        error={loadError}
+        onRetry={() => setReloadKey((k) => k + 1)}
+        onSignOut={() => void handleSignOut()}
+      />
+    );
+  }
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-slate-50 dark:bg-[#0b0f17] text-slate-800 dark:text-slate-100 font-sans">
+    <div className="flex h-screen w-screen overflow-hidden bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 font-sans">
       {/* Sidebar */}
       <Sidebar
         isOpen={sidebarOpen}
         documents={workspace.documents}
         activeDocId={workspace.activeDocId}
-        isCloudSynced={isCloudSynced}
+        userEmail={user.email}
         onSelectDocument={(id) => setWorkspace((prev) => ({ ...prev, activeDocId: id }))}
         onCreateDocument={() => setTemplatesModalOpen(true)}
         onDuplicateDocument={(id) => {
@@ -460,7 +533,7 @@ export const App: React.FC = () => {
             try {
               const restored = sanitizeWorkspace(JSON.parse(String(e.target?.result ?? '')));
               if (!restored) throw new Error('invalid');
-              if (window.confirm('Replace everything on this device with the backup?')) {
+              if (window.confirm('Replace all your spaces with the backup?')) {
                 setWorkspace(restored);
               }
             } catch {
@@ -470,7 +543,7 @@ export const App: React.FC = () => {
           reader.readAsText(file);
         }}
         onOpenCommandPalette={() => setCommandPaletteOpen(true)}
-        onOpenSupabase={() => setSupabaseModalOpen(true)}
+        onOpenAccount={() => setAccountModalOpen(true)}
         onCloseMobile={() => setSidebarOpen(false)}
       />
 
@@ -481,10 +554,9 @@ export const App: React.FC = () => {
           document={activeDocument}
           theme={workspace.theme as 'dark' | 'light'}
           viewMode={viewMode}
-          connectMode={connectMode}
+          saveState={saveState}
           activeTagFilter={activeTagFilter}
           allTags={allTags}
-          isCloudSynced={isCloudSynced}
           onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
           onToggleTheme={() =>
             setWorkspace((prev) => ({
@@ -493,12 +565,9 @@ export const App: React.FC = () => {
             }))
           }
           onToggleViewMode={() => setViewMode(viewMode === 'feed' ? 'canvas' : 'feed')}
-          onToggleConnectMode={() => setConnectMode(!connectMode)}
           onSelectTagFilter={setActiveTagFilter}
           onAddCard={handleAddCard}
           onAddCluster={handleAddCluster}
-          onOpenShareModal={() => setShareModalOpen(true)}
-          onOpenSupabaseModal={() => setSupabaseModalOpen(true)}
           onOpenCommandPalette={() => setCommandPaletteOpen(true)}
           onUpdateDocTitle={(title) => updateActiveDocument((doc) => ({ ...doc, title }))}
         />
@@ -527,7 +596,6 @@ export const App: React.FC = () => {
                 connections={activeDocument.connections}
                 viewport={activeDocument.viewport}
                 activeTagFilter={activeTagFilter}
-                connectMode={connectMode}
                 onUpdateViewport={handleUpdateViewport}
                 onUpdateCard={handleUpdateCard}
                 onDeleteCard={handleDeleteCard}
@@ -536,7 +604,6 @@ export const App: React.FC = () => {
                 onDeleteCluster={handleDeleteCluster}
                 onAddCardInsideCluster={handleAddCardInsideCluster}
                 onDeleteConnection={handleDeleteConnection}
-                onAddConnection={handleAddConnection}
               />
 
               {/* Designer MiniMap Radar */}
@@ -612,8 +679,7 @@ export const App: React.FC = () => {
           }))
         }
         onToggleViewMode={() => setViewMode(viewMode === 'feed' ? 'canvas' : 'feed')}
-        onOpenSupabase={() => setSupabaseModalOpen(true)}
-        onOpenShare={() => setShareModalOpen(true)}
+        onOpenAccount={() => setAccountModalOpen(true)}
         onFocusCard={handleFocusCard}
       />
 
@@ -627,20 +693,12 @@ export const App: React.FC = () => {
         onAdd={handleAddCardFromQuickSheet}
       />
 
-      {/* Supabase Free Cloud Storage & Auth Modal */}
-      <SupabaseModal
-        isOpen={supabaseModalOpen}
-        onClose={() => setSupabaseModalOpen(false)}
-        onSyncPush={handleSyncPushToSupabase}
-        onSyncPull={handleSyncPullFromSupabase}
-        onAuthChange={checkSupabase}
-      />
-
-      {/* Share / Export Modal */}
-      <ShareModal
-        isOpen={shareModalOpen}
-        document={activeDocument}
-        onClose={() => setShareModalOpen(false)}
+      {/* Account */}
+      <AccountModal
+        isOpen={accountModalOpen}
+        userEmail={user.email}
+        onSignOut={handleSignOut}
+        onClose={() => setAccountModalOpen(false)}
       />
 
       {/* Templates Modal */}

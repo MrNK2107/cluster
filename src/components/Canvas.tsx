@@ -10,7 +10,6 @@ interface CanvasProps {
   connections: Connection[];
   viewport: { x: number; y: number; zoom: number };
   activeTagFilter: string | null;
-  connectMode: boolean;
   onUpdateViewport: (vp: { x: number; y: number; zoom: number }) => void;
   onUpdateCard: (id: string, updated: Partial<CardData>) => void;
   onDeleteCard: (id: string) => void;
@@ -19,7 +18,6 @@ interface CanvasProps {
   onDeleteCluster: (id: string) => void;
   onAddCardInsideCluster: (clusterId: string, type: CardType) => void;
   onDeleteConnection: (id: string) => void;
-  onAddConnection: (fromId: string, toId: string) => void;
 }
 
 export const Canvas: React.FC<CanvasProps> = ({
@@ -28,7 +26,6 @@ export const Canvas: React.FC<CanvasProps> = ({
   connections,
   viewport,
   activeTagFilter,
-  connectMode,
   onUpdateViewport,
   onUpdateCard,
   onDeleteCard,
@@ -37,11 +34,9 @@ export const Canvas: React.FC<CanvasProps> = ({
   onDeleteCluster,
   onAddCardInsideCluster,
   onDeleteConnection,
-  onAddConnection,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [connectingSourceId, setConnectingSourceId] = useState<string | null>(null);
 
   // Dragging states
   const [isPanning, setIsPanning] = useState(false);
@@ -142,10 +137,6 @@ export const Canvas: React.FC<CanvasProps> = ({
   // Start Card Drag
   const handleStartCardDrag = (e: React.MouseEvent, cardId: string) => {
     e.stopPropagation();
-    if (connectMode) {
-      handleHandleConnectClick(cardId);
-      return;
-    }
 
     const card = cards.find((c) => c.id === cardId);
     if (!card) return;
@@ -164,10 +155,6 @@ export const Canvas: React.FC<CanvasProps> = ({
   // Start Cluster Drag
   const handleStartClusterDrag = (e: React.MouseEvent, clusterId: string) => {
     e.stopPropagation();
-    if (connectMode) {
-      handleHandleConnectClick(clusterId);
-      return;
-    }
 
     const cluster = clusters.find((c) => c.id === clusterId);
     if (!cluster) return;
@@ -181,18 +168,6 @@ export const Canvas: React.FC<CanvasProps> = ({
       x: e.clientX - clusterScreenX,
       y: e.clientY - clusterScreenY,
     });
-  };
-
-  // Handle Connecting 2 items
-  const handleHandleConnectClick = (id: string) => {
-    if (!connectingSourceId) {
-      setConnectingSourceId(id);
-    } else {
-      if (connectingSourceId !== id) {
-        onAddConnection(connectingSourceId, id);
-      }
-      setConnectingSourceId(null);
-    }
   };
 
   // Mouse Move listener
@@ -294,7 +269,6 @@ export const Canvas: React.FC<CanvasProps> = ({
         }
       } else if (e.key === 'Escape') {
         setSelectedId(null);
-        setConnectingSourceId(null);
       }
     };
 
@@ -310,7 +284,7 @@ export const Canvas: React.FC<CanvasProps> = ({
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
-      className={`relative w-full h-full overflow-hidden canvas-background bg-slate-50 dark:bg-[#0b0f17] canvas-grid-dots dark:canvas-grid-dots-dark select-none ${
+      className={`relative w-full h-full overflow-hidden canvas-background bg-slate-50 dark:bg-slate-950 canvas-grid-dots select-none ${
         isPanning ? 'cursor-grabbing' : 'cursor-grab'
       }`}
     >
@@ -338,14 +312,8 @@ export const Canvas: React.FC<CanvasProps> = ({
               key={cluster.id}
               cluster={cluster}
               cards={clusterCards}
-              isSelected={selectedId === cluster.id || connectingSourceId === cluster.id}
-              onSelect={() => {
-                if (connectMode) {
-                  handleHandleConnectClick(cluster.id);
-                } else {
-                  setSelectedId(cluster.id);
-                }
-              }}
+              isSelected={selectedId === cluster.id}
+              onSelect={() => setSelectedId(cluster.id)}
               onUpdate={(updated) => onUpdateCluster(cluster.id, updated)}
               onDelete={() => onDeleteCluster(cluster.id)}
               onStartDrag={handleStartClusterDrag}
@@ -368,14 +336,8 @@ export const Canvas: React.FC<CanvasProps> = ({
               <CardView
                 card={card}
                 clusters={clusters}
-                isSelected={selectedId === card.id || connectingSourceId === card.id}
-                onSelect={() => {
-                  if (connectMode) {
-                    handleHandleConnectClick(card.id);
-                  } else {
-                    setSelectedId(card.id);
-                  }
-                }}
+                isSelected={selectedId === card.id}
+                onSelect={() => setSelectedId(card.id)}
                 onUpdate={(updated) => onUpdateCard(card.id, updated)}
                 onDelete={() => onDeleteCard(card.id)}
                 onDuplicate={() => onDuplicateCard(card.id)}
@@ -386,13 +348,6 @@ export const Canvas: React.FC<CanvasProps> = ({
         })}
       </div>
 
-      {/* Floating connect mode banner */}
-      {connectMode && (
-        <div className="absolute top-5 left-1/2 -translate-x-1/2 bg-indigo-600/95 backdrop-blur-xl text-white px-5 py-2.5 rounded-full shadow-2xl text-xs font-bold flex items-center gap-2.5 z-40 animate-subtle border border-indigo-400/40">
-          <span className="w-2 h-2 rounded-full bg-white animate-ping" />
-          <span>{connectingSourceId ? 'Click destination card or cluster' : 'Click first card to start relation arrow'}</span>
-        </div>
-      )}
     </div>
   );
 };
