@@ -1,7 +1,7 @@
 # Clustr ⚡ — Spatial todos, notes & clusters
 
 > A spatial, unstructured to-do list and canvas app with multiple spaces, clusters and loose scratchpads.
-> Local-first (IndexedDB), free to host as a static site, with optional cloud sync through your own Supabase project.
+> Sign in and your spaces are stored in Supabase, private to your account and saved automatically. Free to host as a static site.
 
 ---
 
@@ -9,13 +9,13 @@
 
 - **📱 Feed view and 🗺️ spatial canvas**
   - Feed view for phones: thumb-friendly card stacks grouped by cluster, chip navigation, 44px tap targets, sticky action bar.
-  - Canvas for desktop and tablet: infinite pan and zoom, dot grid, drag-and-drop cards, relation arrows, minimap.
+  - Canvas for desktop and tablet: infinite pan and zoom, dot grid, drag-and-drop cards, minimap.
   - One-tap switch between the two.
 - **📦 Clusters**: colour-coded grouping zones. Drag a cluster to move its cards, collapse it to tidy up, see live completion stats.
 - **📝 Card types**: todo checklists with `#tags` and priorities (confetti when you finish), freeform notes, sticky notes, tally counters, bookmark lists.
 - **🗂️ Multiple spaces**: independent boards, starter templates, duplicate and delete, ⌘K command palette.
-- **☁️ Optional cloud sync**: sign in with email and push or pull your workspace to a Supabase project you control. Row Level Security keeps each account's data private.
-- **💾 Backup and share**: JSON backup and restore, Markdown export, and snapshot links that carry a copy of a space.
+- **🔒 Private accounts**: sign in with email; every change is saved to the database within a second, and Row Level Security keeps each account's spaces visible to that account only.
+- **💾 Backup**: JSON backup and restore.
 
 ---
 
@@ -31,21 +31,19 @@ npm run check:secrets
 
 ---
 
-## ☁️ Cloud sync setup (optional)
+## ☁️ Accounts (Supabase)
 
-Clustr works fully offline. To enable sync:
+The app requires sign-in; each user's spaces are stored in the `workspaces` table and saved automatically.
+The Supabase project is configured by the deployment, never by users:
 
 1. Create a project at [supabase.com](https://supabase.com).
 2. In the project's **SQL Editor** run the migration in
-   [`supabase/migrations/20261023000000_create_workspaces.sql`](supabase/migrations/20261023000000_create_workspaces.sql)
-   (the same SQL is available from the *Copy SQL* button in the app's Cloud sync dialog).
-3. Either
-   - **per deployment**: set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` as build-time environment variables on your host
-     (or in a local, git-ignored `.env`; see `.env.example`), or
-   - **per user**: open **Sync** in the app, expand *Connection* and paste the project URL and anon key.
-     They stay in that browser only.
+   [`supabase/migrations/20261023000000_create_workspaces.sql`](supabase/migrations/20261023000000_create_workspaces.sql).
+3. Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` as build-time environment variables on your host
+   (or in a local, git-ignored `.env`; see `.env.example`).
 
-Use the **anon / publishable** key only. The app rejects `service_role` and `sb_secret_` keys because they must never reach a browser.
+Use the **anon / publishable** key only; never the `service_role` / `sb_secret_` key. Without these variables the app
+cannot be used; the sign-in screen reports that accounts are unavailable.
 
 ---
 
@@ -58,7 +56,7 @@ Everything is static; any CDN works.
 - **Cloudflare Pages**: build command `npm run build`, output directory `dist`.
 - **GitHub Pages**: the workflow in `.github/workflows/deploy.yml` builds and publishes `dist` on every push to `main`.
 
-Set the two `VITE_SUPABASE_*` variables in the host's environment settings if you want sync pre-configured for visitors.
+Set the two `VITE_SUPABASE_*` variables in the host's environment settings; the app needs them to run.
 
 ---
 

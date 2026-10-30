@@ -21,13 +21,12 @@ dashboard under *Project Settings → API Keys* and update the Vercel env var.
   same scan on staged files. `npm run check:secrets -- --history` scans every
   commit.
 - A GitHub Actions workflow runs the scanner plus gitleaks on every push.
-- The browser only ever receives the **anon / publishable** key. The
-  settings form rejects `service_role` and `sb_secret_` keys outright.
-- The stored key is never read back into the page. The UI shows the project
-  host and the last three characters of the key only.
+- Supabase credentials come only from the deployment's environment
+  variables. There is no in-app form for entering or viewing them, and only
+  the **anon / publishable** key may be configured.
 - Database and network errors are mapped to short user-facing hints rather
   than echoing raw PostgREST messages.
-- Data arriving from snapshot links, backup files and cloud pulls is
+- Data arriving from snapshot links, backup files and the account's saved workspace is
   validated and sanitised before it is rendered. Bookmark URLs are limited to
   `http`, `https`, `mailto` and `tel`.
 - Vercel and Netlify deployments send a Content Security Policy and the usual
