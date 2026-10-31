@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createFakeSupabase, type FakeSupabase } from '../test/fakeSupabase';
-import { createStarterWorkspace } from './storage';
+import { createStarterWorkspace as sharedStarter } from './storage';
+
+const createStarterWorkspace = () => structuredClone(sharedStarter());
 
 // Placeholder values only: nothing here is a real project or key.
 const TEST_URL = 'https://unit-test.invalid';

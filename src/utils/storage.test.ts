@@ -1,9 +1,10 @@
 import 'fake-indexeddb/auto';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { clearLegacyLocalWorkspace, createStarterWorkspace, readLegacyLocalWorkspace } from './storage';
+import { clearLegacyLocalWorkspace, createStarterWorkspace as sharedStarter, readLegacyLocalWorkspace } from './storage';
 import { sanitizeWorkspace } from './validate';
 
 const LEGACY_KEY = 'clustr_workspace_v1';
+const createStarterWorkspace = () => structuredClone(sharedStarter());
 
 function openLegacyDb(): Promise<void> {
   return new Promise((resolve, reject) => {
