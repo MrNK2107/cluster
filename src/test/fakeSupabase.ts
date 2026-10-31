@@ -14,6 +14,7 @@ type DbError = { message: string; code?: string };
 export function createFakeSupabase() {
   const rows = new Map<string, { user_id: string; data: unknown; updated_at: string }>();
   const listeners = new Set<AuthCallback>();
+  const accounts = new Map<string, { id: string; password: string }>();
   let session: FakeSession | null = null;
   const failures: { select?: DbError | Error; upsert?: DbError | Error } = {};
 
@@ -25,6 +26,20 @@ export function createFakeSupabase() {
       listeners.add(cb);
       queueMicrotask(() => cb('INITIAL_SESSION', session));
       return { data: { subscription: { unsubscribe: vi.fn(() => listeners.delete(cb)) } } };
+    }),
+    signInWithPassword: vi.fn(async ({ email, password }: { email: string; password: string }) => {
+      const account = accounts.get(email);
+      if (!account || account.password !== password) {
+        return { data: { session: null }, error: { message: 'Invalid login credentials', status: 400 } };
+      }
+      session = { user: { id: account.id, email } };
+      emit('SIGNED_IN');
+      return { data: { session }, error: null };
+    }),
+    signUp: vi.fn(async ({ email, password }: { email: string; password: string }) => {
+      accounts.set(email, { id: `user-${accounts.size + 1}`, password });
+      // Email confirmation is on: no session until the link is clicked.
+      return { data: { session: null, user: { email } }, error: null };
     }),
     signOut: vi.fn(async () => {
       session = null;
@@ -62,6 +77,7 @@ export function createFakeSupabase() {
   return {
     client: { auth, from },
     rows,
+    accounts,
     upsert,
     failures,
     signIn(id: string, email = `${id}@example.test`) {

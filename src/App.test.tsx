@@ -77,6 +77,45 @@ describe('sign-in guard', () => {
     expect(screen.queryByTitle('Toggle Documents Sidebar')).toBeNull();
   });
 
+  it('validates the form before contacting the server', async () => {
+    await renderApp();
+    fireEvent.click(await screen.findByRole('button', { name: 'Sign in' }));
+    expect(await screen.findByText('Enter your email and password')).toBeTruthy();
+    expect(fake.client.auth.signInWithPassword).not.toHaveBeenCalled();
+  });
+
+  it('shows the error for wrong credentials and stays on the form', async () => {
+    fake.accounts.set('me@example.test', { id: 'u1', password: 'right' });
+    await renderApp();
+    fireEvent.change(await screen.findByPlaceholderText('name@email.com'), { target: { value: 'me@example.test' } });
+    fireEvent.change(screen.getByPlaceholderText('Password'), { target: { value: 'wrong' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+    expect(await screen.findByText('Invalid login credentials')).toBeTruthy();
+    expect(fake.client.from).not.toHaveBeenCalled();
+  });
+
+  it('asks new users to confirm their email instead of opening a workspace', async () => {
+    await renderApp();
+    fireEvent.click(await screen.findByRole('button', { name: 'Create an account' }));
+    fireEvent.change(screen.getByPlaceholderText('name@email.com'), { target: { value: ' new@example.test ' } });
+    fireEvent.change(screen.getByPlaceholderText('Password'), { target: { value: 'secret-pass' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create account' }));
+    expect(await screen.findByText(/Check your inbox/)).toBeTruthy();
+    expect(fake.client.auth.signUp).toHaveBeenCalledWith({ email: 'new@example.test', password: 'secret-pass' });
+    expect(fake.client.from).not.toHaveBeenCalled();
+  });
+
+  it('opens the workspace after a successful sign-in', async () => {
+    fake.accounts.set('me@example.test', { id: 'u1', password: 'right' });
+    seedRow('u1', createStarterWorkspace());
+    await renderApp();
+    fireEvent.change(await screen.findByPlaceholderText('name@email.com'), { target: { value: 'me@example.test' } });
+    fireEvent.change(screen.getByPlaceholderText('Password'), { target: { value: 'right' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+    expect(await screen.findByText('me@example.test')).toBeTruthy();
+    expect(screen.queryByPlaceholderText('name@email.com')).toBeNull();
+  });
+
   it('returns to the sign-in form after signing out', async () => {
     await signedInApp();
     await signOutViaAccountModal();
@@ -113,6 +152,28 @@ describe('loading the account workspace', () => {
     expect(await screen.findByText(/Permission denied/)).toBeTruthy();
     expect(localStorage.getItem(LEGACY_KEY)).not.toBeNull();
     expect(fake.rows.size).toBe(0);
+  });
+
+  it('switches to the other account without mixing workspaces', async () => {
+    const mine = createStarterWorkspace();
+    mine.documents[0].title = 'Mine';
+    const theirs = createStarterWorkspace();
+    theirs.documents[0].title = 'Theirs';
+    theirs.theme = 'light';
+    seedRow('u2', theirs);
+    await signedInApp(mine);
+
+    toggleTheme(); // pending local edit for u1 when the session changes
+    await act(async () => {
+      fake.signIn('u2', 'them@example.test');
+    });
+    expect(await screen.findByText('them@example.test')).toBeTruthy();
+    expect(screen.getAllByText('Theirs').length).toBeGreaterThan(0);
+
+    await new Promise((r) => setTimeout(r, 900));
+    expect(storedRow('u2').documents[0].title).toBe('Theirs');
+    expect(storedRow('u2').theme).toBe('light');
+    expect(storedRow('u1').documents[0].title).toBe('Mine');
   });
 
   it('shows load errors with a working retry', async () => {
