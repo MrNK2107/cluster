@@ -146,6 +146,17 @@ describe('loading the account workspace', () => {
     expect(localStorage.getItem(LEGACY_KEY)).toBeNull();
   });
 
+  it('gives a brand-new account one empty space instead of sample content', async () => {
+    fake.signIn('fresh-user', 'fresh@example.test');
+    await renderApp();
+    await screen.findByText('fresh@example.test');
+
+    const ws = storedRow('fresh-user');
+    expect(ws.documents).toHaveLength(1);
+    expect(ws.documents[0].cards).toEqual([]);
+    expect(ws.documents[0].clusters).toEqual([]);
+  });
+
   it('keeps the browser copy when creating the account workspace fails', async () => {
     localStorage.setItem(LEGACY_KEY, JSON.stringify(createStarterWorkspace()));
     fake.failures.upsert = { message: 'new row violates row-level security policy', code: '42501' };

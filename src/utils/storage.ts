@@ -239,6 +239,34 @@ export function createStarterWorkspace(): WorkspaceData {
   };
 }
 
+/** What a brand-new account starts with: one empty space, no sample content. */
+export function createEmptyWorkspace(): WorkspaceData {
+  const now = Date.now();
+  const prefersDark =
+    typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+      ? window.matchMedia('(prefers-color-scheme: dark)').matches
+      : false;
+  return {
+    version: 1,
+    activeDocId: 'doc-first-space',
+    documents: [
+      {
+        id: 'doc-first-space',
+        title: 'My space',
+        icon: '✨',
+        color: '#3d5afe',
+        createdAt: now,
+        updatedAt: now,
+        viewport: { x: 0, y: 0, zoom: 1 },
+        clusters: [],
+        cards: [],
+        connections: [],
+      },
+    ],
+    theme: prefersDark ? 'dark' : 'light',
+  };
+}
+
 /**
  * Workspaces used to live in this browser only. Read that copy once so the
  * first sign-in can carry it into the account instead of the starter data.

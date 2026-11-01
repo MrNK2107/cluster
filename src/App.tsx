@@ -10,6 +10,7 @@ import type {
 import {
   INITIAL_DOCUMENTS,
   createStarterWorkspace,
+  createEmptyWorkspace,
   readLegacyLocalWorkspace,
   clearLegacyLocalWorkspace,
   exportWorkspaceJSON
@@ -150,7 +151,7 @@ export const App: React.FC = () => {
   }, []);
 
   // Load the account's workspace. A brand-new account starts from whatever was
-  // kept in this browser before accounts existed, or from the starter spaces.
+  // kept in this browser before accounts existed, or from one empty space.
   useEffect(() => {
     setLoaded(false);
     setLoadError(null);
@@ -174,7 +175,7 @@ export const App: React.FC = () => {
       }
       let ws = res.data;
       if (!ws) {
-        ws = readLegacyLocalWorkspace() ?? createStarterWorkspace();
+        ws = readLegacyLocalWorkspace() ?? createEmptyWorkspace();
         const created = await saveCloudWorkspace(ws);
         if (cancelled) return;
         if (!created.success) {
