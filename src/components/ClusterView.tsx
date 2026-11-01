@@ -1,22 +1,18 @@
-import React, { useState } from 'react';
-import { 
-  Trash2, 
-  Plus, 
-  ChevronDown, 
-  ChevronUp, 
-  Palette, 
-  GripVertical,
-  CheckCircle2,
-  FilePlus2,
-  StickyNote
-} from 'lucide-react';
-import type { Cluster, CardData, CardColor, CardType } from '../types';
-import { COLOR_MAP } from '../utils/storage';
+import React, { useCallback, useState } from 'react';
+import { Plus, ChevronDown, Palette, MoreHorizontal, Trash2 } from 'lucide-react';
+import type { Cluster, CardData, CardType } from '../types';
+import { colorTheme } from '../theme/colors';
+import { IconButton, MenuItem, MenuLabel, MenuPanel, useDismiss } from './ui';
+import { ColorSwatches } from './CardView';
+import { CARD_KINDS } from './CanvasDock';
+import { cn } from '../utils/cn';
 
 interface ClusterViewProps {
   cluster: Cluster;
   cards: CardData[];
   isSelected: boolean;
+  isDropTarget?: boolean;
+  children?: React.ReactNode;
   onSelect: () => void;
   onUpdate: (updated: Partial<Cluster>) => void;
   onDelete: () => void;
@@ -24,182 +20,181 @@ interface ClusterViewProps {
   onAddCardInside: (clusterId: string, type: CardType) => void;
 }
 
+const stop = {
+  onClick: (e: React.SyntheticEvent) => e.stopPropagation(),
+  onMouseDown: (e: React.SyntheticEvent) => e.stopPropagation(),
+};
+
 export const ClusterView: React.FC<ClusterViewProps> = ({
   cluster,
   cards,
   isSelected,
+  isDropTarget = false,
+  children,
   onSelect,
   onUpdate,
   onDelete,
   onStartDrag,
   onAddCardInside,
 }) => {
-  const [showColorPicker, setShowColorPicker] = useState(false);
-  const [showAddMenu, setShowAddMenu] = useState(false);
+  const [popover, setPopover] = useState<'add' | 'color' | 'menu' | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const close = useCallback(() => {
+    setPopover(null);
+    setConfirmDelete(false);
+  }, []);
+  const popRef = useDismiss(popover !== null, close);
+  const theme = colorTheme(cluster.color);
 
-  const colors: CardColor[] = ['default', 'blue', 'green', 'yellow', 'purple', 'pink', 'amber', 'rose'];
-  const colorTheme = COLOR_MAP[cluster.color] || COLOR_MAP.default;
-
-  let totalTodos = 0;
-  let completedTodos = 0;
-  cards.forEach(c => {
-    if (c.todos) {
-      totalTodos += c.todos.length;
-      completedTodos += c.todos.filter(t => t.completed).length;
-    }
-  });
+  let total = 0;
+  let done = 0;
+  for (const c of cards) {
+    total += c.todos?.length ?? 0;
+    done += c.todos?.filter((t) => t.completed).length ?? 0;
+  }
 
   return (
-    <div
+    <section
+      data-cluster-id={cluster.id}
+      aria-label={cluster.title}
       onClick={(e) => {
         e.stopPropagation();
         onSelect();
       }}
       style={{
         position: 'absolute',
-        left: `${cluster.x}px`,
-        top: `${cluster.y}px`,
-        width: `${cluster.width}px`,
-        minHeight: cluster.collapsed ? 'auto' : `${cluster.height}px`,
-        zIndex: 5,
+        left: cluster.x,
+        top: cluster.y,
+        width: cluster.width,
+        minHeight: cluster.collapsed ? undefined : cluster.height,
+        zIndex: popover ? 25 : 5,
       }}
-      className={`rounded-3xl border-2 transition-all duration-200 ${colorTheme.border} ${
-        cluster.collapsed 
-          ? 'bg-white/85 dark:bg-slate-900/85 shadow-lg backdrop-blur-xl' 
-          : 'bg-white/30 dark:bg-slate-900/25 backdrop-blur-[4px]'
-      } ${
-        isSelected 
-          ? 'ring-2 ring-indigo-500 shadow-2xl scale-[1.005]' 
-          : 'hover:border-slate-400/60 dark:hover:border-white/20'
-      }`}
+      className={cn(
+        'group/cluster rounded-[28px] border-2 transition-[border-color,box-shadow,background-color] duration-200',
+        theme.region,
+        isDropTarget
+          ? 'border-brand-500 border-solid bg-brand-500/[0.08] shadow-[0_0_0_6px] shadow-brand-500/15'
+          : isSelected
+            ? 'border-brand-500 shadow-[0_0_0_4px] shadow-brand-500/15'
+            : cn(theme.regionBorder, 'border-dashed'),
+        cluster.collapsed && 'pb-3',
+      )}
     >
-      {/* Cluster Header Bar */}
-      <div
+      {/* Header strip: drag handle with the label tab hanging over the border */}
+      <header
         onMouseDown={(e) => onStartDrag(e, cluster.id)}
-        className={`flex items-center justify-between px-4 py-3 rounded-t-3xl cursor-grab active:cursor-grabbing border-b ${colorTheme.border} ${colorTheme.header} select-none`}
+        className="relative flex items-start justify-between gap-2 px-4 h-11 cursor-grab active:cursor-grabbing select-none"
       >
-        <div className="flex items-center gap-2 flex-1 min-w-0 mr-2">
-          <GripVertical className="w-4 h-4 text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-200 shrink-0 transition-colors" />
+        <div className={cn('-mt-[18px] inline-flex items-center gap-2 max-w-[calc(100%-8px)] h-9 pl-4 pr-3 rounded-full shadow-[0_8px_18px_-10px_rgba(20,20,60,0.5)]', theme.tab)}>
           <input
-            type="text"
+            {...stop}
             value={cluster.title}
             onChange={(e) => onUpdate({ title: e.target.value })}
-            placeholder="Cluster title..."
-            className="w-full bg-transparent font-bold text-sm tracking-tight text-slate-800 dark:text-slate-100 outline-none truncate focus:bg-white/50 dark:focus:bg-black/40 rounded px-1.5 py-0.5 transition-colors"
-            onClick={(e) => e.stopPropagation()}
-            onMouseDown={(e) => e.stopPropagation()}
+            placeholder="Name this cluster"
+            aria-label="Cluster name"
+            size={Math.max(8, Math.min(32, cluster.title.length + 2))}
+            className="min-w-0 max-w-full [field-sizing:content] bg-transparent outline-none font-display text-[15px] font-bold tracking-tight placeholder:text-current placeholder:opacity-60"
           />
+          <span className="shrink-0 text-[12px] font-semibold tabular-nums opacity-75">
+            {total > 0 ? `${done}/${total}` : cards.length}
+          </span>
         </div>
 
-        <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
-          {/* Progress / Card Count Badge */}
-          {totalTodos > 0 ? (
-            <span className="flex items-center gap-1 text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-black/5 dark:bg-white/10 text-slate-700 dark:text-slate-200 font-mono">
-              <CheckCircle2 className="w-3 h-3 text-emerald-500" />
-              {completedTodos}/{totalTodos}
-            </span>
-          ) : (
-            <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-black/5 dark:bg-white/10 text-slate-600 dark:text-slate-300">
-              {cards.length} {cards.length === 1 ? 'card' : 'cards'}
-            </span>
+        <div
+          ref={popRef}
+          {...stop}
+          className={cn(
+            'absolute right-3 -top-[17px] flex items-center gap-0.5 p-0.5 rounded-full bg-white dark:bg-ink-800 ring-1 ring-ink-900/[0.08] dark:ring-white/10 shadow-[0_6px_16px_-8px_rgba(20,20,60,0.4)] transition-opacity',
+            isSelected || popover ? 'opacity-100' : 'opacity-0 group-hover/cluster:opacity-100 focus-within:opacity-100 max-md:opacity-100',
+          )}
+        >
+          <IconButton label="Add card to cluster" size="sm" onClick={() => setPopover(popover === 'add' ? null : 'add')}>
+            <Plus className="w-4 h-4" />
+          </IconButton>
+          <IconButton label="Cluster colour" size="sm" onClick={() => setPopover(popover === 'color' ? null : 'color')}>
+            <Palette className="w-4 h-4" />
+          </IconButton>
+          <IconButton
+            label={cluster.collapsed ? 'Expand cluster' : 'Collapse cluster'}
+            size="sm"
+            onClick={() => onUpdate({ collapsed: !cluster.collapsed })}
+          >
+            <ChevronDown className={cn('w-4 h-4 transition-transform duration-200', !cluster.collapsed && 'rotate-180')} />
+          </IconButton>
+          <IconButton label="Cluster options" size="sm" onClick={() => setPopover(popover === 'menu' ? null : 'menu')}>
+            <MoreHorizontal className="w-4 h-4" />
+          </IconButton>
+
+          {popover === 'add' && (
+            <MenuPanel className="right-0 top-full mt-1.5 w-52">
+              <MenuLabel>Add to {cluster.title || 'cluster'}</MenuLabel>
+              {CARD_KINDS.map(({ type, label, icon: Icon, tint }) => (
+                <MenuItem
+                  key={type}
+                  icon={<Icon className={cn('w-4 h-4', tint)} />}
+                  onClick={() => {
+                    onAddCardInside(cluster.id, type);
+                    close();
+                  }}
+                >
+                  {label}
+                </MenuItem>
+              ))}
+            </MenuPanel>
           )}
 
-          {/* Add Card dropdown */}
-          <div className="relative">
-            <button
-              onClick={() => setShowAddMenu(!showAddMenu)}
-              className="p-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white transition-colors shadow-xs"
-              title="Add card inside this cluster"
-            >
-              <Plus className="w-3.5 h-3.5" />
-            </button>
-            {showAddMenu && (
-              <div className="absolute right-0 top-full mt-1.5 w-44 bg-white dark:bg-slate-900 rounded-xl shadow-xl border border-slate-200 dark:border-slate-800 p-1.5 z-50 text-xs">
-                <button
-                  onClick={() => {
-                    onAddCardInside(cluster.id, 'todo');
-                    setShowAddMenu(false);
-                  }}
-                  className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 text-slate-700 dark:text-slate-200"
-                >
-                  <CheckCircle2 className="w-3.5 h-3.5 text-indigo-500" /> Todo Checklist
-                </button>
-                <button
-                  onClick={() => {
-                    onAddCardInside(cluster.id, 'note');
-                    setShowAddMenu(false);
-                  }}
-                  className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 text-slate-700 dark:text-slate-200"
-                >
-                  <FilePlus2 className="w-3.5 h-3.5 text-emerald-500" /> Unstructured Note
-                </button>
-                <button
-                  onClick={() => {
-                    onAddCardInside(cluster.id, 'sticky');
-                    setShowAddMenu(false);
-                  }}
-                  className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 text-slate-700 dark:text-slate-200"
-                >
-                  <StickyNote className="w-3.5 h-3.5 text-amber-500" /> Sticky Note
-                </button>
-              </div>
-            )}
-          </div>
+          {popover === 'color' && (
+            <MenuPanel className="right-0 top-full mt-1.5 min-w-0 w-auto">
+              <ColorSwatches
+                value={cluster.color}
+                onPick={(c) => {
+                  onUpdate({ color: c });
+                  close();
+                }}
+              />
+            </MenuPanel>
+          )}
 
-          {/* Color Switcher */}
-          <div className="relative">
-            <button
-              onClick={() => setShowColorPicker(!showColorPicker)}
-              className="p-1.5 rounded-md hover:bg-black/5 dark:hover:bg-white/10 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
-              title="Change cluster tint"
-            >
-              <Palette className="w-3.5 h-3.5" />
-            </button>
-            {showColorPicker && (
-              <div className="absolute right-0 top-full mt-1.5 p-2 bg-white dark:bg-slate-900 rounded-xl shadow-xl border border-slate-200 dark:border-slate-800 flex gap-1.5 z-50">
-                {colors.map((c) => (
-                  <button
-                    key={c}
-                    onClick={() => {
-                      onUpdate({ color: c });
-                      setShowColorPicker(false);
-                    }}
-                    className={`w-5 h-5 rounded-full border border-black/10 dark:border-white/20 transition-transform hover:scale-125 ${
-                      cluster.color === c ? 'ring-2 ring-indigo-500 scale-110' : ''
-                    } ${
-                      c === 'default' ? 'bg-slate-300' :
-                      c === 'yellow' ? 'bg-amber-400' :
-                      c === 'green' ? 'bg-emerald-400' :
-                      c === 'blue' ? 'bg-sky-400' :
-                      c === 'purple' ? 'bg-purple-400' :
-                      c === 'pink' ? 'bg-pink-400' :
-                      c === 'amber' ? 'bg-orange-400' : 'bg-rose-400'
-                    }`}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
+          {popover === 'menu' && (
+            <MenuPanel className="right-0 top-full mt-1.5 w-60">
+              <MenuItem
+                tone="danger"
+                icon={<Trash2 className="w-4 h-4" />}
+                onClick={() => {
+                  if (!confirmDelete) {
+                    setConfirmDelete(true);
+                    return;
+                  }
+                  onDelete();
+                  close();
+                }}
+              >
+                {confirmDelete ? 'Click again to delete' : 'Delete cluster'}
+              </MenuItem>
+              <p className="px-2.5 pt-1 pb-1.5 text-[12px] leading-snug text-ink-400">Cards inside stay on the canvas.</p>
+            </MenuPanel>
+          )}
+        </div>
+      </header>
 
-          {/* Collapse/Expand */}
+      {!cluster.collapsed && React.Children.count(children) > 0 && <div className="px-4 pb-5 pt-1 space-y-4">{children}</div>}
+
+      {!cluster.collapsed && cards.length === 0 && (
+        <div className="px-6 pt-10 text-center">
+          <p className="text-[14px] font-medium text-ink-400 dark:text-ink-500">Drag cards here, or</p>
           <button
-            onClick={() => onUpdate({ collapsed: !cluster.collapsed })}
-            className="p-1.5 rounded-md hover:bg-black/5 dark:hover:bg-white/10 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
-            title={cluster.collapsed ? 'Expand' : 'Collapse'}
+            type="button"
+            {...stop}
+            onClick={(e) => {
+              e.stopPropagation();
+              onAddCardInside(cluster.id, 'todo');
+            }}
+            className={cn('mt-2 inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full text-[13px] font-semibold ring-1 ring-inset ring-current/20 hover:bg-white/60 dark:hover:bg-white/5', theme.text)}
           >
-            {cluster.collapsed ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronUp className="w-3.5 h-3.5" />}
-          </button>
-
-          {/* Delete cluster */}
-          <button
-            onClick={onDelete}
-            className="p-1.5 rounded-md hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/60 dark:hover:text-rose-400 text-slate-400 transition-colors"
-            title="Delete cluster container"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
+            <Plus className="w-4 h-4" /> Add a to-do list
           </button>
         </div>
-      </div>
-    </div>
+      )}
+    </section>
   );
 };

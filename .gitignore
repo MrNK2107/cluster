@@ -31,3 +31,8 @@ dist-ssr
 # Supabase CLI local state
 supabase/.temp
 supabase/.branches
+.vercel
+.env*
+
+# Browser automation scratch output
+.playwright-mcp

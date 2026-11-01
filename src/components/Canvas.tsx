@@ -18,6 +18,7 @@ interface CanvasProps {
   onDeleteCluster: (id: string) => void;
   onAddCardInsideCluster: (clusterId: string, type: CardType) => void;
   onDeleteConnection: (id: string) => void;
+  onCreateAt?: (type: CardType, x: number, y: number) => void;
 }
 
 export const Canvas: React.FC<CanvasProps> = ({
@@ -34,6 +35,7 @@ export const Canvas: React.FC<CanvasProps> = ({
   onDeleteCluster,
   onAddCardInsideCluster,
   onDeleteConnection,
+  onCreateAt,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -45,6 +47,7 @@ export const Canvas: React.FC<CanvasProps> = ({
   const [draggingCardId, setDraggingCardId] = useState<string | null>(null);
   const [draggingClusterId, setDraggingClusterId] = useState<string | null>(null);
   const [dragOffset, setDragOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
 
   // Touch gesture state (pinch-zoom and touch pan)
   const touchStartRef = useRef<{ dist: number; midX: number; midY: number; vpX: number; vpY: number; zoom: number } | null>(null);
@@ -55,7 +58,7 @@ export const Canvas: React.FC<CanvasProps> = ({
       e.preventDefault();
       const zoomFactor = 1 - e.deltaY * 0.001;
       const newZoom = Math.min(Math.max(viewport.zoom * zoomFactor, 0.3), 2.5);
-      
+
       const rect = containerRef.current?.getBoundingClientRect();
       if (!rect) return;
       const mouseX = e.clientX - rect.left;
@@ -139,17 +142,23 @@ export const Canvas: React.FC<CanvasProps> = ({
     e.stopPropagation();
 
     const card = cards.find((c) => c.id === cardId);
-    if (!card) return;
+    const el = (e.currentTarget as HTMLElement).closest('article');
+    const box = containerRef.current?.getBoundingClientRect();
+    if (!card || !el || !box) return;
+
+    // Cards inside a cluster are laid out by the cluster, so read the real
+    // position from the page and lift the card out while it is dragged.
+    const rect = el.getBoundingClientRect();
+    const screenX = rect.left - box.left;
+    const screenY = rect.top - box.top;
+    const x = Math.round((screenX - viewport.x) / viewport.zoom);
+    const y = Math.round((screenY - viewport.y) / viewport.zoom);
+    if (x !== card.x || y !== card.y) onUpdateCard(cardId, { x, y });
 
     setSelectedId(cardId);
     setDraggingCardId(cardId);
-    
-    const cardScreenX = card.x * viewport.zoom + viewport.x;
-    const cardScreenY = card.y * viewport.zoom + viewport.y;
-    setDragOffset({
-      x: e.clientX - cardScreenX,
-      y: e.clientY - cardScreenY,
-    });
+    setDropTargetId(card.clusterId ?? null);
+    setDragOffset({ x: e.clientX - screenX, y: e.clientY - screenY });
   };
 
   // Start Cluster Drag
@@ -183,28 +192,20 @@ export const Canvas: React.FC<CanvasProps> = ({
         const card = cards.find((c) => c.id === draggingCardId);
         if (!card) return;
 
-        const newCanvasX = Math.round((e.clientX - dragOffset.x - viewport.x) / viewport.zoom);
-        const newCanvasY = Math.round((e.clientY - dragOffset.y - viewport.y) / viewport.zoom);
+        onUpdateCard(draggingCardId, {
+          x: Math.round((e.clientX - dragOffset.x - viewport.x) / viewport.zoom),
+          y: Math.round((e.clientY - dragOffset.y - viewport.y) / viewport.zoom),
+        });
 
-        // Check if dropped inside a cluster
-        let targetClusterId: string | null = null;
-        for (const cl of clusters) {
-          if (
-            newCanvasX >= cl.x &&
-            newCanvasX <= cl.x + cl.width &&
-            newCanvasY >= cl.y &&
-            newCanvasY <= cl.y + cl.height
-          ) {
-            targetClusterId = cl.id;
-            break;
+        // The cluster under the pointer is where the card will land.
+        let target: string | null = null;
+        for (const node of containerRef.current?.querySelectorAll<HTMLElement>('[data-cluster-id]') ?? []) {
+          const r = node.getBoundingClientRect();
+          if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) {
+            target = node.dataset.clusterId ?? null;
           }
         }
-
-        onUpdateCard(draggingCardId, {
-          x: newCanvasX,
-          y: newCanvasY,
-          clusterId: targetClusterId,
-        });
+        if (target !== dropTargetId) setDropTargetId(target);
       } else if (draggingClusterId) {
         const cluster = clusters.find((c) => c.id === draggingClusterId);
         if (!cluster) return;
@@ -232,6 +233,13 @@ export const Canvas: React.FC<CanvasProps> = ({
     };
 
     const handleMouseUp = () => {
+      if (draggingCardId) {
+        const card = cards.find((c) => c.id === draggingCardId);
+        if (card && (card.clusterId ?? null) !== dropTargetId) {
+          onUpdateCard(draggingCardId, { clusterId: dropTargetId });
+        }
+        setDropTargetId(null);
+      }
       setIsPanning(false);
       setDraggingCardId(null);
       setDraggingClusterId(null);
@@ -243,7 +251,7 @@ export const Canvas: React.FC<CanvasProps> = ({
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [isPanning, panStart, draggingCardId, draggingClusterId, dragOffset, viewport, cards, clusters]);
+  }, [isPanning, panStart, draggingCardId, draggingClusterId, dragOffset, dropTargetId, viewport, cards, clusters]);
 
   // Keyboard shortcuts (Delete, Duplicate)
   useEffect(() => {
@@ -276,27 +284,74 @@ export const Canvas: React.FC<CanvasProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedId, cards, clusters]);
 
+  const renderCard = (card: CardData, inFlow: boolean) => {
+    const matchesTag = !activeTagFilter || card.tags.includes(activeTagFilter);
+    return (
+      <div
+        key={card.id}
+        className={`transition-opacity duration-200 ${matchesTag ? 'opacity-100' : 'opacity-15 pointer-events-none'}`}
+      >
+        <CardView
+          card={card}
+          clusters={clusters}
+          inFlow={inFlow}
+          isDragging={card.id === draggingCardId}
+          isSelected={selectedId === card.id}
+          onSelect={() => setSelectedId(card.id)}
+          onUpdate={(updated) => onUpdateCard(card.id, updated)}
+          onDelete={() => onDeleteCard(card.id)}
+          onDuplicate={() => onDuplicateCard(card.id)}
+          onStartDrag={handleStartCardDrag}
+        />
+      </div>
+    );
+  };
+  const isEmpty = cards.length === 0 && clusters.length === 0;
+
+  const handleDoubleClick = (e: React.MouseEvent) => {
+    if (!onCreateAt) return;
+    const target = e.target as HTMLElement;
+    if (target !== containerRef.current && !target.classList.contains('canvas-background')) return;
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const x = Math.round((e.clientX - rect.left - viewport.x) / viewport.zoom) - 40;
+    const y = Math.round((e.clientY - rect.top - viewport.y) / viewport.zoom) - 24;
+    onCreateAt('sticky', x, y);
+  };
+
   return (
     <div
       ref={containerRef}
       onWheel={handleWheel}
       onMouseDown={handleMouseDown}
+      onDoubleClick={handleDoubleClick}
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
-      className={`relative w-full h-full overflow-hidden canvas-background bg-slate-50 dark:bg-slate-950 canvas-grid-dots select-none ${
-        isPanning ? 'cursor-grabbing' : 'cursor-grab'
+      className={`relative w-full h-full overflow-hidden canvas-background bg-ink-100 dark:bg-ink-950 canvas-grid-dots select-none ${
+        isPanning ? 'cursor-grabbing' : 'cursor-default'
       }`}
     >
-      {/* Transformable Canvas Layer */}
+      {isEmpty && (
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-6">
+          <div className="max-w-sm text-center animate-pop-in">
+            <div className="mx-auto mb-5 w-16 h-16 rotate-[-4deg] rounded-2xl bg-sun-300 shadow-[0_18px_30px_-16px_rgba(20,20,60,0.45)]" />
+            <h2 className="font-display text-2xl font-bold tracking-tight text-ink-900 dark:text-white">A blank canvas</h2>
+            <p className="mt-2 text-[15px] leading-relaxed text-ink-500 dark:text-ink-400">
+              Double-click anywhere to drop a sticky, or pick something from the toolbar below.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Transformable canvas layer */}
       <div
         style={{
           transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.zoom})`,
           transformOrigin: '0 0',
         }}
-        className="absolute inset-0 pointer-events-auto"
+        className="absolute inset-0 pointer-events-none [&>:not(svg)]:pointer-events-auto"
       >
-        {/* Connection Lines Layer */}
         <ConnectionLines
           connections={connections}
           cards={cards}
@@ -304,50 +359,30 @@ export const Canvas: React.FC<CanvasProps> = ({
           onDeleteConnection={onDeleteConnection}
         />
 
-        {/* Clusters */}
         {clusters.map((cluster) => {
-          const clusterCards = cards.filter((c) => c.clusterId === cluster.id);
+          const inside = cards.filter((c) => c.clusterId === cluster.id);
           return (
             <ClusterView
               key={cluster.id}
               cluster={cluster}
-              cards={clusterCards}
+              cards={inside}
               isSelected={selectedId === cluster.id}
+              isDropTarget={draggingCardId !== null && dropTargetId === cluster.id}
               onSelect={() => setSelectedId(cluster.id)}
               onUpdate={(updated) => onUpdateCluster(cluster.id, updated)}
               onDelete={() => onDeleteCluster(cluster.id)}
               onStartDrag={handleStartClusterDrag}
               onAddCardInside={onAddCardInsideCluster}
-            />
-          );
-        })}
-
-        {/* Cards */}
-        {cards.map((card) => {
-          const matchesTag = !activeTagFilter || card.tags.includes(activeTagFilter);
-          
-          return (
-            <div
-              key={card.id}
-              className={`transition-opacity duration-200 ${
-                matchesTag ? 'opacity-100' : 'opacity-20 pointer-events-none'
-              }`}
             >
-              <CardView
-                card={card}
-                clusters={clusters}
-                isSelected={selectedId === card.id}
-                onSelect={() => setSelectedId(card.id)}
-                onUpdate={(updated) => onUpdateCard(card.id, updated)}
-                onDelete={() => onDeleteCard(card.id)}
-                onDuplicate={() => onDuplicateCard(card.id)}
-                onStartDrag={handleStartCardDrag}
-              />
-            </div>
+              {!cluster.collapsed && inside.filter((c) => c.id !== draggingCardId).map((card) => renderCard(card, true))}
+            </ClusterView>
           );
         })}
-      </div>
 
+        {cards
+          .filter((c) => c.id === draggingCardId || !c.clusterId || !clusters.some((cl) => cl.id === c.clusterId))
+          .map((card) => renderCard(card, false))}
+      </div>
     </div>
   );
 };

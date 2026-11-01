@@ -29,17 +29,67 @@ import { Canvas } from './components/Canvas';
 import { MobileFeedView } from './components/MobileFeedView';
 import { MobileQuickAddSheet } from './components/MobileQuickAddSheet';
 import { TemplatesModal } from './components/TemplatesModal';
-import { AccountModal } from './components/AccountModal';
+import { AccountModal, SetPasswordDialog } from './components/AccountModal';
+import { CanvasDock, CARD_KINDS } from './components/CanvasDock';
 import { AuthScreen, WorkspaceLoading } from './components/AuthScreen';
 import { CommandPalette } from './components/CommandPalette';
 import { MiniMap } from './components/MiniMap';
-import { Plus, FileText, Map, LayoutGrid } from 'lucide-react';
+import { Plus } from 'lucide-react';
 
 export type SaveState = 'saved' | 'saving' | 'error';
 
 /** Debounce before an edit is written to the database. */
 const SAVE_DELAY_MS = 600;
 const SAVE_RETRY_MS = 5000;
+
+/**
+ * Local UI preview: `VITE_UI_PREVIEW=1 npm run dev` skips sign-in and keeps
+ * edits in memory, so the interface can be worked on without an account.
+ * Only ever active in the dev server.
+ */
+const UI_PREVIEW = import.meta.env.DEV && import.meta.env.VITE_UI_PREVIEW === '1';
+const PREVIEW_USER: AuthUser = { id: 'preview', email: 'preview@clustr.local', name: 'Preview', avatarUrl: null };
+
+const DEFAULT_TITLES: Record<CardType, string> = {
+  todo: 'To-do',
+  note: 'Note',
+  sticky: '',
+  counter: 'Tally',
+  links: 'Links',
+};
+
+const DEFAULT_COLORS: Record<CardType, CardColor> = {
+  todo: 'blue',
+  note: 'green',
+  sticky: 'yellow',
+  counter: 'pink',
+  links: 'purple',
+};
+
+function makeCard(type: CardType, fields: Partial<CardData>): CardData {
+  const now = Date.now();
+  return {
+    id: `card-${now}-${Math.random().toString(36).slice(2, 6)}`,
+    clusterId: null,
+    type,
+    title: DEFAULT_TITLES[type],
+    x: 100,
+    y: 100,
+    color: DEFAULT_COLORS[type],
+    tags: [],
+    todos: type === 'todo' ? [] : undefined,
+    noteContent: type === 'note' || type === 'sticky' ? '' : undefined,
+    counterValue: type === 'counter' ? 0 : undefined,
+    counterLabel: type === 'counter' ? '' : undefined,
+    bookmarks: type === 'links' ? [] : undefined,
+    ...fields,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+const isTyping = (target: EventTarget | null) =>
+  target instanceof HTMLElement && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName));
 
 export const App: React.FC = () => {
   const [workspace, setWorkspace] = useState<WorkspaceData>(createStarterWorkspace);
@@ -62,7 +112,10 @@ export const App: React.FC = () => {
   const [quickAddClusterId, setQuickAddClusterId] = useState<string | null>(null);
 
   // undefined = auth state not known yet, null = signed out.
-  const [user, setUser] = useState<AuthUser | null | undefined>(isCloudConfigured ? undefined : null);
+  const [user, setUser] = useState<AuthUser | null | undefined>(
+    UI_PREVIEW ? (new URLSearchParams(window.location.search).has('signin') ? null : PREVIEW_USER) : isCloudConfigured ? undefined : null,
+  );
+  const [recoveryOpen, setRecoveryOpen] = useState(false);
   const userId = user?.id ?? null;
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -84,7 +137,8 @@ export const App: React.FC = () => {
   useEffect(() => {
     let active = true;
     let unsubscribe = () => {};
-    void subscribeToAuth(setUser).then((unsub) => {
+    if (UI_PREVIEW) return;
+    void subscribeToAuth(setUser, () => setRecoveryOpen(true)).then((unsub) => {
       if (active) unsubscribe = unsub;
       else unsub();
     });
@@ -102,6 +156,11 @@ export const App: React.FC = () => {
     lastSavedRef.current = null;
     if (!userId) {
       setWorkspace(createStarterWorkspace());
+      return;
+    }
+    if (UI_PREVIEW) {
+      setWorkspace(createStarterWorkspace());
+      setLoaded(true);
       return;
     }
     let cancelled = false;
@@ -135,6 +194,7 @@ export const App: React.FC = () => {
 
   /** Writes the latest workspace to the database, one request at a time. */
   const flushSave = useCallback(async function flush(): Promise<void> {
+    if (UI_PREVIEW) return;
     if (savingRef.current || lastSavedRef.current === null) return;
     if (retryTimerRef.current) {
       clearTimeout(retryTimerRef.current);
@@ -164,7 +224,7 @@ export const App: React.FC = () => {
 
   // Every change is saved shortly after it is made.
   useEffect(() => {
-    if (!loaded || JSON.stringify(workspace) === lastSavedRef.current) return;
+    if (UI_PREVIEW || !loaded || JSON.stringify(workspace) === lastSavedRef.current) return;
     setSaveState('saving');
     const timer = setTimeout(() => void flushSave(), SAVE_DELAY_MS);
     return () => clearTimeout(timer);
@@ -173,7 +233,7 @@ export const App: React.FC = () => {
   // Save when the tab is hidden, pick up edits made on other devices when it
   // comes back, and warn before closing with unsaved changes.
   useEffect(() => {
-    if (!loaded) return;
+    if (UI_PREVIEW || !loaded) return;
     const isDirty = () => savingRef.current || JSON.stringify(workspaceRef.current) !== lastSavedRef.current;
 
     const onVisibility = async () => {
@@ -267,37 +327,26 @@ export const App: React.FC = () => {
   };
 
   // Card Handlers
-  const handleAddCard = (type: CardType) => {
-    const vp = activeDocument.viewport;
-    const spawnX = Math.round((-vp.x + 300) / vp.zoom);
-    const spawnY = Math.round((-vp.y + 200) / vp.zoom);
-
-    const defaultColor: CardColor = type === 'todo' ? 'blue' : type === 'note' ? 'green' : type === 'sticky' ? 'yellow' : 'pink';
-
-    const newCard: CardData = {
-      id: `card-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
-      clusterId: null,
-      type,
-      title: type === 'todo' ? 'New Task List' : type === 'note' ? 'Quick Scratchpad' : type === 'sticky' ? 'Sticky Note' : type === 'counter' ? 'Counter' : 'Links',
-      x: Math.max(40, spawnX),
-      y: Math.max(40, spawnY),
-      color: defaultColor,
-      tags: [],
-      todos: type === 'todo' ? [
-        { id: `t-${Date.now()}`, text: 'First task to complete', completed: false, priority: 'medium' }
-      ] : undefined,
-      noteContent: type === 'note' ? '' : type === 'sticky' ? '' : undefined,
-      counterValue: type === 'counter' ? 0 : undefined,
-      counterLabel: type === 'counter' ? 'Count' : undefined,
-      bookmarks: type === 'links' ? [] : undefined,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    };
-
+  const handleAddCardAt = (type: CardType, x: number, y: number, extra: Partial<CardData> = {}) => {
+    const newCard = makeCard(type, { x, y, ...extra });
     updateActiveDocument((doc) => ({
       ...doc,
       cards: [...doc.cards, newCard],
     }));
+  };
+
+  const handleAddCard = (type: CardType) => {
+    const vp = activeDocument.viewport;
+    // Centre of the visible canvas, nudged so repeated adds don't stack exactly.
+    const main = document.querySelector('main')?.getBoundingClientRect();
+    const w = main?.width ?? window.innerWidth;
+    const h = main?.height ?? window.innerHeight;
+    const jitter = (activeDocument.cards.length % 5) * 24;
+    handleAddCardAt(
+      type,
+      Math.round((w / 2 - vp.x) / vp.zoom - 160 + jitter),
+      Math.round((h / 2 - vp.y) / vp.zoom - 120 + jitter),
+    );
   };
 
   const handleAddCardInsideCluster = (clusterId: string, type: CardType) => {
@@ -307,19 +356,7 @@ export const App: React.FC = () => {
     const clusterCards = activeDocument.cards.filter((c) => c.clusterId === clusterId);
     const cardY = cluster.y + 60 + clusterCards.length * 90;
 
-    const newCard: CardData = {
-      id: `card-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
-      clusterId,
-      type,
-      title: type === 'todo' ? 'Checklist' : type === 'note' ? 'Notes' : 'Sticky',
-      x: cluster.x + 20,
-      y: cardY,
-      color: cluster.color,
-      tags: [],
-      todos: type === 'todo' ? [{ id: `t-${Date.now()}`, text: 'New item', completed: false }] : undefined,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    };
+    const newCard = makeCard(type, { clusterId, x: cluster.x + 20, y: cardY, color: cluster.color });
 
     updateActiveDocument((doc) => ({
       ...doc,
@@ -334,22 +371,19 @@ export const App: React.FC = () => {
     clusterId: string | null;
     color: CardColor;
   }) => {
-    const newCard: CardData = {
-      id: `card-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+    const cluster = activeDocument.clusters.find((c) => c.id === params.clusterId);
+    const inCluster = activeDocument.cards.filter((c) => c.clusterId === params.clusterId).length;
+    const tags = params.type === 'todo' ? Array.from(new Set(params.content.match(/#[\p{L}\p{N}_-]+/gu) ?? [])) : [];
+    const newCard = makeCard(params.type, {
       clusterId: params.clusterId,
-      type: params.type,
       title: params.title,
-      x: 100,
-      y: 100,
+      x: cluster ? cluster.x + 20 : 100 + (activeDocument.cards.length % 6) * 30,
+      y: cluster ? cluster.y + 60 + inCluster * 90 : 100 + (activeDocument.cards.length % 6) * 30,
       color: params.color,
-      tags: [],
-      todos: params.type === 'todo' ? [
-        { id: `t-${Date.now()}`, text: params.content || 'First item', completed: false }
-      ] : undefined,
-      noteContent: params.type !== 'todo' ? params.content : undefined,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    };
+      tags,
+      todos: params.type === 'todo' && params.content ? [{ id: `t-${Date.now()}`, text: params.content, completed: false, priority: 'medium' }] : params.type === 'todo' ? [] : undefined,
+      noteContent: params.type === 'note' || params.type === 'sticky' ? params.content : undefined,
+    });
 
     updateActiveDocument((doc) => ({
       ...doc,
@@ -379,7 +413,7 @@ export const App: React.FC = () => {
     const duplicated: CardData = {
       ...card,
       id: `card-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
-      title: `${card.title} (Copy)`,
+      title: `${card.title} copy`,
       x: card.x + 30,
       y: card.y + 30,
       createdAt: Date.now(),
@@ -400,8 +434,8 @@ export const App: React.FC = () => {
 
     const newCluster: Cluster = {
       id: `cluster-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
-      title: 'New Cluster Group',
-      color: 'blue',
+      title: 'New cluster',
+      color: (['blue', 'green', 'yellow', 'pink', 'amber', 'purple'] as const)[activeDocument.clusters.length % 6],
       x: Math.max(40, spawnX),
       y: Math.max(40, spawnY),
       width: 380,
@@ -474,10 +508,41 @@ export const App: React.FC = () => {
   const handleFocusCard = (cardId: string) => {
     const card = activeDocument.cards.find((c) => c.id === cardId);
     if (!card) return;
-    const targetX = -(card.x * activeDocument.viewport.zoom - window.innerWidth / 2 + 160);
-    const targetY = -(card.y * activeDocument.viewport.zoom - window.innerHeight / 2 + 100);
-    handlePanTo(targetX, targetY);
+    // Cards in a cluster are stacked by the cluster; aim at the cluster instead.
+    const cluster = activeDocument.clusters.find((cl) => cl.id === card.clusterId);
+    const x = cluster ? cluster.x + 20 : card.x;
+    const y = cluster ? cluster.y : card.y;
+    const zoom = activeDocument.viewport.zoom;
+    const main = document.querySelector('main')?.getBoundingClientRect();
+    handlePanTo(-(x * zoom - (main?.width ?? window.innerWidth) / 2 + 160), -(y * zoom - 80));
   };
+
+  const toggleTheme = () => setWorkspace((prev) => ({ ...prev, theme: prev.theme === 'dark' ? 'light' : 'dark' }));
+  const anyModalOpen = templatesModalOpen || accountModalOpen || commandPaletteOpen || quickAddOpen || recoveryOpen;
+
+  // Single-key shortcuts for adding things to the canvas.
+  const shortcutRef = useRef<(e: KeyboardEvent) => void>(() => {});
+  useEffect(() => {
+    shortcutRef.current = (e: KeyboardEvent) => {
+    if (!loaded || anyModalOpen || viewMode !== 'canvas' || e.metaKey || e.ctrlKey || e.altKey || isTyping(e.target)) return;
+    const key = e.key.toUpperCase();
+    if (key === 'C') {
+      e.preventDefault();
+      handleAddCluster();
+      return;
+    }
+    const kind = CARD_KINDS.find((k) => k.key === key);
+    if (kind) {
+      e.preventDefault();
+      handleAddCard(kind.type);
+    }
+    };
+  });
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => shortcutRef.current(e);
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   if (user === undefined) return <WorkspaceLoading />;
   if (!user) return <AuthScreen />;
@@ -491,14 +556,19 @@ export const App: React.FC = () => {
     );
   }
 
+  const openQuickAdd = (type: CardType, clusterId?: string | null) => {
+    setQuickAddType(type);
+    setQuickAddClusterId(clusterId ?? null);
+    setQuickAddOpen(true);
+  };
+
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 font-sans">
-      {/* Sidebar */}
+    <div className="flex h-dvh w-screen overflow-hidden bg-ink-100 dark:bg-ink-950 text-ink-800 dark:text-ink-100 font-sans">
       <Sidebar
         isOpen={sidebarOpen}
         documents={workspace.documents}
         activeDocId={workspace.activeDocId}
-        userEmail={user.email}
+        user={user}
         onSelectDocument={(id) => setWorkspace((prev) => ({ ...prev, activeDocId: id }))}
         onCreateDocument={() => setTemplatesModalOpen(true)}
         onDuplicateDocument={(id) => {
@@ -506,8 +576,8 @@ export const App: React.FC = () => {
           if (!doc) return;
           const dup: BoardDocument = {
             ...doc,
-            id: `doc-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
-            title: `${doc.title} (Copy)`,
+            id: `doc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            title: `${doc.title} copy`,
             createdAt: Date.now(),
             updatedAt: Date.now(),
           };
@@ -523,56 +593,31 @@ export const App: React.FC = () => {
           setWorkspace((prev) => ({
             ...prev,
             documents: remaining,
-            activeDocId: remaining[0].id,
+            activeDocId: prev.activeDocId === id ? remaining[0].id : prev.activeDocId,
           }));
-        }}
-        onExportAll={() => exportWorkspaceJSON(workspace)}
-        onImportBackup={(file) => {
-          const reader = new FileReader();
-          reader.onload = (e) => {
-            try {
-              const restored = sanitizeWorkspace(JSON.parse(String(e.target?.result ?? '')));
-              if (!restored) throw new Error('invalid');
-              if (window.confirm('Replace all your spaces with the backup?')) {
-                setWorkspace(restored);
-              }
-            } catch {
-              alert('That file is not a valid Clustr backup.');
-            }
-          };
-          reader.readAsText(file);
         }}
         onOpenCommandPalette={() => setCommandPaletteOpen(true)}
         onOpenAccount={() => setAccountModalOpen(true)}
-        onCloseMobile={() => setSidebarOpen(false)}
+        onClose={() => setSidebarOpen(false)}
       />
 
-      {/* Main App Container */}
       <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden relative">
-        {/* Designer TopBar */}
         <TopBar
           document={activeDocument}
           theme={workspace.theme as 'dark' | 'light'}
           viewMode={viewMode}
           saveState={saveState}
+          sidebarOpen={sidebarOpen}
           activeTagFilter={activeTagFilter}
           allTags={allTags}
           onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
-          onToggleTheme={() =>
-            setWorkspace((prev) => ({
-              ...prev,
-              theme: prev.theme === 'dark' ? 'light' : 'dark',
-            }))
-          }
-          onToggleViewMode={() => setViewMode(viewMode === 'feed' ? 'canvas' : 'feed')}
+          onToggleTheme={toggleTheme}
+          onSetViewMode={setViewMode}
           onSelectTagFilter={setActiveTagFilter}
-          onAddCard={handleAddCard}
-          onAddCluster={handleAddCluster}
           onOpenCommandPalette={() => setCommandPaletteOpen(true)}
           onUpdateDocTitle={(title) => updateActiveDocument((doc) => ({ ...doc, title }))}
         />
 
-        {/* Workspace Body: Mobile-First Feed View OR Spatial Canvas View */}
         <main className="flex-1 w-full h-full relative overflow-hidden">
           {viewMode === 'feed' ? (
             <MobileFeedView
@@ -582,11 +627,7 @@ export const App: React.FC = () => {
               onDeleteCard={handleDeleteCard}
               onUpdateCluster={handleUpdateCluster}
               onDeleteCluster={handleDeleteCluster}
-              onOpenQuickAdd={(type, clusterId) => {
-                setQuickAddType(type);
-                setQuickAddClusterId(clusterId || null);
-                setQuickAddOpen(true);
-              }}
+              onOpenQuickAdd={openQuickAdd}
             />
           ) : (
             <>
@@ -604,9 +645,9 @@ export const App: React.FC = () => {
                 onDeleteCluster={handleDeleteCluster}
                 onAddCardInsideCluster={handleAddCardInsideCluster}
                 onDeleteConnection={handleDeleteConnection}
+                onCreateAt={(type, x, y) => handleAddCardAt(type, x, y)}
               />
-
-              {/* Designer MiniMap Radar */}
+              <CanvasDock onAddCard={handleAddCard} onAddCluster={handleAddCluster} />
               <MiniMap
                 cards={activeDocument.cards}
                 clusters={activeDocument.clusters}
@@ -619,49 +660,17 @@ export const App: React.FC = () => {
             </>
           )}
 
-          {/* Mobile Bottom Thumb-Zone Floating Action Bar */}
-          <div className="md:hidden fixed bottom-4 left-4 right-4 z-40 flex items-center justify-between pointer-events-none select-none">
-            {/* View switcher pill */}
-            <button
-              onClick={() => setViewMode(viewMode === 'feed' ? 'canvas' : 'feed')}
-              className="pointer-events-auto flex items-center gap-1.5 px-4 py-2.5 rounded-full bg-slate-900/95 dark:bg-white/95 text-white dark:text-slate-900 backdrop-blur-xl shadow-2xl text-xs font-bold transition-transform active:scale-95 border border-white/10 dark:border-black/10"
-            >
-              {viewMode === 'feed' ? <Map className="w-4 h-4 text-indigo-400 dark:text-indigo-600" /> : <LayoutGrid className="w-4 h-4 text-emerald-400 dark:text-emerald-600" />}
-              <span>{viewMode === 'feed' ? 'Canvas' : 'Feed'}</span>
-            </button>
-
-            {/* Quick Add Buttons */}
-            <div className="pointer-events-auto flex items-center gap-2">
-              <button
-                onClick={() => {
-                  setQuickAddType('note');
-                  setQuickAddClusterId(null);
-                  setQuickAddOpen(true);
-                }}
-                className="w-11 h-11 rounded-full bg-white/90 dark:bg-slate-800/90 text-slate-700 dark:text-slate-200 border border-slate-200/80 dark:border-white/10 backdrop-blur-xl shadow-xl flex items-center justify-center transition-transform active:scale-95"
-                title="Quick Note"
-              >
-                <FileText className="w-5 h-5 text-emerald-500" />
-              </button>
-
-              <button
-                onClick={() => {
-                  setQuickAddType('todo');
-                  setQuickAddClusterId(null);
-                  setQuickAddOpen(true);
-                }}
-                className="flex items-center gap-1.5 px-4 py-2.5 rounded-full bg-indigo-600 text-white shadow-xl shadow-indigo-500/25 text-xs font-bold transition-transform active:scale-95 hover:bg-indigo-700"
-                title="Add Task List"
-              >
-                <Plus className="w-4 h-4" />
-                <span>+ Todo</span>
-              </button>
-            </div>
-          </div>
+          {/* Phone: one thumb-reachable add button */}
+          <button
+            type="button"
+            onClick={() => openQuickAdd('todo')}
+            className="md:hidden fixed right-4 bottom-[max(1.25rem,env(safe-area-inset-bottom))] z-40 flex items-center gap-2 h-14 pl-5 pr-6 rounded-full bg-brand-600 text-white font-semibold text-[15px] shadow-[0_16px_32px_-12px] shadow-brand-700 active:scale-95 transition-transform"
+          >
+            <Plus className="w-5 h-5" /> Add
+          </button>
         </main>
       </div>
 
-      {/* Spotlight Command Palette (Cmd+K) */}
       <CommandPalette
         isOpen={commandPaletteOpen}
         documents={workspace.documents}
@@ -672,18 +681,15 @@ export const App: React.FC = () => {
         onSelectDocument={(docId) => setWorkspace((prev) => ({ ...prev, activeDocId: docId }))}
         onAddCard={handleAddCard}
         onAddCluster={handleAddCluster}
-        onToggleTheme={() =>
-          setWorkspace((prev) => ({
-            ...prev,
-            theme: prev.theme === 'dark' ? 'light' : 'dark',
-          }))
-        }
+        onToggleTheme={toggleTheme}
         onToggleViewMode={() => setViewMode(viewMode === 'feed' ? 'canvas' : 'feed')}
         onOpenAccount={() => setAccountModalOpen(true)}
-        onFocusCard={handleFocusCard}
+        onFocusCard={(id) => {
+          setViewMode('canvas');
+          handleFocusCard(id);
+        }}
       />
 
-      {/* Mobile Quick Add Bottom Sheet */}
       <MobileQuickAddSheet
         isOpen={quickAddOpen}
         initialType={quickAddType}
@@ -693,15 +699,34 @@ export const App: React.FC = () => {
         onAdd={handleAddCardFromQuickSheet}
       />
 
-      {/* Account */}
       <AccountModal
         isOpen={accountModalOpen}
-        userEmail={user.email}
+        user={user}
+        theme={workspace.theme === 'dark' ? 'dark' : 'light'}
+        onSetTheme={(theme) => setWorkspace((prev) => ({ ...prev, theme }))}
+        onExport={() => exportWorkspaceJSON(workspace)}
+        onImport={(file) => {
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            try {
+              const restored = sanitizeWorkspace(JSON.parse(String(e.target?.result ?? '')));
+              if (!restored) throw new Error('invalid');
+              if (window.confirm('Replace all your spaces with the ones in this backup?')) {
+                setWorkspace(restored);
+                setAccountModalOpen(false);
+              }
+            } catch {
+              window.alert('That file isn’t a clustr backup. Choose a .json file you downloaded from clustr.');
+            }
+          };
+          reader.readAsText(file);
+        }}
         onSignOut={handleSignOut}
         onClose={() => setAccountModalOpen(false)}
       />
 
-      {/* Templates Modal */}
+      <SetPasswordDialog open={recoveryOpen} onClose={() => setRecoveryOpen(false)} />
+
       <TemplatesModal
         isOpen={templatesModalOpen}
         onClose={() => setTemplatesModalOpen(false)}
@@ -711,6 +736,7 @@ export const App: React.FC = () => {
             documents: [newDoc, ...prev.documents],
             activeDocId: newDoc.id,
           }));
+          if (window.innerWidth < 768) setSidebarOpen(false);
         }}
       />
     </div>

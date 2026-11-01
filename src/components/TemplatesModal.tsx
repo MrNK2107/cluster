@@ -1,5 +1,9 @@
-import React, { useState } from 'react';
-import { X, Sparkles, Plus } from 'lucide-react';
+import React, { useCallback, useEffect, useState } from 'react';
+import { colorTheme } from '../theme/colors';
+import { Dialog, MenuPanel, useDismiss } from './ui';
+import { cn } from '../utils/cn';
+
+const EMOJI = ['📌', '✨', '🏠', '🎯', '🚀', '🧠', '📚', '💼', '🛒', '✈️', '🎨', '🌱', '💡', '🏋️', '🎵', '🍳', '💸', '🗓️'];
 import type { BoardDocument } from '../types';
 
 interface TemplatesModalProps {
@@ -15,22 +19,30 @@ export const TemplatesModal: React.FC<TemplatesModalProps> = ({
 }) => {
   const [customTitle, setCustomTitle] = useState('');
   const [customIcon, setCustomIcon] = useState('📌');
+  const [emojiOpen, setEmojiOpen] = useState(false);
+  const closeEmoji = useCallback(() => setEmojiOpen(false), []);
+  const emojiRef = useDismiss(emojiOpen, closeEmoji);
 
-  if (!isOpen) return null;
+  useEffect(() => {
+    if (isOpen) {
+      setCustomTitle('');
+      setCustomIcon('📌');
+    }
+  }, [isOpen]);
 
   const templates = [
     {
-      title: 'Blank Infinite Canvas',
+      title: 'Blank canvas',
       icon: '✨',
-      description: 'Clean slate ready for loose thoughts, tasks, and clusters.',
+      description: 'An empty canvas. Add whatever you need.',
       color: '#6366f1',
       clusters: [],
       cards: [],
     },
     {
-      title: 'Hostel & Hospitality Hub',
+      title: 'Hostel & hospitality',
       icon: '🏨',
-      description: 'Morning routines, inventory procurement, guest events & contacts.',
+      description: 'Morning routines, supplies and guest events.',
       color: '#0284c7',
       clusters: [
         {
@@ -74,9 +86,9 @@ export const TemplatesModal: React.FC<TemplatesModalProps> = ({
       ],
     },
     {
-      title: 'Sprint & Project Board',
+      title: 'Project board',
       icon: '🚀',
-      description: 'Current sprint goals, immediate blockers, and backlog.',
+      description: 'This week’s goals and what’s waiting.',
       color: '#10b981',
       clusters: [
         {
@@ -120,9 +132,9 @@ export const TemplatesModal: React.FC<TemplatesModalProps> = ({
       ],
     },
     {
-      title: 'Weekly Brain-dump & Scratchpad',
+      title: 'Brain dump',
       icon: '🧠',
-      description: 'Fluid thoughts, stream of consciousness, untangling ideas.',
+      description: 'A loose space to empty your head.',
       color: '#ec4899',
       clusters: [
         {
@@ -159,7 +171,7 @@ export const TemplatesModal: React.FC<TemplatesModalProps> = ({
       id: `doc-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
       title: customTitle.trim() || tpl.title,
       description: tpl.description,
-      icon: customIcon || tpl.icon,
+      icon: customTitle.trim() || customIcon !== '📌' ? customIcon : tpl.icon,
       color: tpl.color,
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -174,77 +186,78 @@ export const TemplatesModal: React.FC<TemplatesModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 select-none">
-      <div 
-        onClick={(e) => e.stopPropagation()}
-        className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden"
-      >
-        <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
-            <h3 className="font-bold text-slate-800 dark:text-slate-100 text-sm">
-              Create New Document / Space
-            </h3>
-          </div>
+    <Dialog open={isOpen} onClose={onClose} title="New space" description="Name it, then pick a starting point." className="sm:max-w-lg">
+      <div className="flex gap-2">
+        <div ref={emojiRef} className="relative">
           <button
-            onClick={onClose}
-            className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
+            type="button"
+            onClick={() => setEmojiOpen((o) => !o)}
+            aria-label="Choose an icon"
+            className="w-12 h-12 rounded-xl text-2xl flex items-center justify-center bg-ink-100 hover:bg-ink-200 dark:bg-ink-800 dark:hover:bg-ink-700 transition-colors"
           >
-            <X className="w-4 h-4" />
+            {customIcon}
           </button>
-        </div>
-
-        <div className="p-6 space-y-5">
-          <div>
-            <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">
-              Document Title (Optional)
-            </label>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={customIcon}
-                onChange={(e) => setCustomIcon(e.target.value)}
-                className="w-12 text-center text-lg p-2 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 outline-none"
-              />
-              <input
-                type="text"
-                value={customTitle}
-                onChange={(e) => setCustomTitle(e.target.value)}
-                placeholder="e.g. Hostel Renovation, Side Hustle..."
-                className="flex-1 text-xs p-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 outline-none text-slate-800 dark:text-slate-100"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-2">
-              Choose a starter layout:
-            </label>
-            <div className="grid grid-cols-1 gap-3">
-              {templates.map((tpl, i) => (
-                <div
-                  key={i}
-                  onClick={() => handleSelectTemplate(tpl)}
-                  className="flex items-start gap-3 p-4 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-indigo-500 hover:bg-indigo-50/50 dark:hover:bg-indigo-500/10 cursor-pointer transition-all group"
+          {emojiOpen && (
+            <MenuPanel className="left-0 top-full mt-1.5 min-w-0 w-[232px] p-2 grid grid-cols-6 gap-1 origin-top-left">
+              {EMOJI.map((e) => (
+                <button
+                  key={e}
+                  type="button"
+                  onClick={() => {
+                    setCustomIcon(e);
+                    setEmojiOpen(false);
+                  }}
+                  className={cn('w-8 h-8 rounded-lg text-lg flex items-center justify-center hover:bg-ink-100 dark:hover:bg-ink-800', customIcon === e && 'bg-brand-50 ring-1 ring-brand-300 dark:bg-brand-500/15')}
                 >
-                  <span className="text-2xl shrink-0 p-1 rounded-lg bg-slate-100 dark:bg-slate-800 group-hover:scale-110 transition-transform">
-                    {tpl.icon}
-                  </span>
-                  <div className="flex-1">
-                    <h4 className="font-bold text-xs text-slate-800 dark:text-slate-100 group-hover:text-indigo-600 dark:group-hover:text-indigo-400">
-                      {tpl.title}
-                    </h4>
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                      {tpl.description}
-                    </p>
-                  </div>
-                  <Plus className="w-4 h-4 text-slate-400 group-hover:text-indigo-600 self-center" />
-                </div>
+                  {e}
+                </button>
               ))}
-            </div>
-          </div>
+            </MenuPanel>
+          )}
         </div>
+        <input
+          autoFocus
+          value={customTitle}
+          onChange={(e) => setCustomTitle(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') handleSelectTemplate(templates[0]);
+          }}
+          placeholder="Space name, e.g. Flat move"
+          aria-label="Space name"
+          className="min-w-0 flex-1 h-12 px-4 rounded-xl text-[16px] font-semibold bg-ink-50 dark:bg-ink-950 text-ink-900 dark:text-white placeholder:font-normal placeholder:text-ink-400 outline-none ring-1 ring-inset ring-ink-200 dark:ring-ink-700 focus:ring-2 focus:ring-brand-500"
+        />
       </div>
-    </div>
+
+      <div className="mt-5 mb-2 text-[13px] font-semibold text-ink-500 dark:text-ink-400">Start from</div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+        {templates.map((tpl) => (
+          <button
+            key={tpl.title}
+            type="button"
+            onClick={() => handleSelectTemplate(tpl)}
+            className="group text-left p-3.5 rounded-2xl ring-1 ring-inset ring-ink-200 dark:ring-ink-700 hover:ring-2 hover:ring-brand-500 hover:bg-brand-50/40 dark:hover:bg-brand-500/5 transition-all active:scale-[0.99]"
+          >
+            <div className="h-16 rounded-xl bg-ink-100 dark:bg-ink-950 canvas-grid-dots relative overflow-hidden mb-3">
+              {tpl.clusters.length === 0 ? (
+                <span className="absolute inset-0 flex items-center justify-center text-2xl">{tpl.icon}</span>
+              ) : (
+                tpl.clusters.slice(0, 3).map((cl, i) => (
+                  <span
+                    key={cl.id}
+                    className={cn('absolute top-3 h-3.5 w-14 rounded-full', colorTheme(cl.color).swatch)}
+                    style={{ left: 10 + i * 64 }}
+                  />
+                ))
+              )}
+              {tpl.clusters.length > 0 && (
+                <span className="absolute left-2.5 top-9 h-5 w-24 rounded-md bg-white dark:bg-ink-800 shadow-sm" />
+              )}
+            </div>
+            <div className="font-display text-[15px] font-bold tracking-tight text-ink-950 dark:text-white">{tpl.title}</div>
+            <p className="mt-0.5 text-[13px] leading-snug text-ink-500 dark:text-ink-400">{tpl.description}</p>
+          </button>
+        ))}
+      </div>
+    </Dialog>
   );
 };

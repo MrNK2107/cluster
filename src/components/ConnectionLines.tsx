@@ -43,7 +43,7 @@ export const ConnectionLines: React.FC<ConnectionLinesProps> = ({
           refY="3.5"
           orient="auto"
         >
-          <polygon points="0 0, 10 3.5, 0 7" fill="#6366f1" />
+          <polygon points="0 0, 10 3.5, 0 7" fill="#3d5afe" />
         </marker>
       </defs>
 
@@ -66,7 +66,7 @@ export const ConnectionLines: React.FC<ConnectionLinesProps> = ({
             <path
               d={`M ${from.x} ${from.y} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${to.x} ${to.y}`}
               fill="none"
-              stroke="#6366f1"
+              stroke="#3d5afe"
               strokeWidth="2.5"
               strokeDasharray="4 4"
               markerEnd="url(#arrowhead)"
@@ -77,7 +77,7 @@ export const ConnectionLines: React.FC<ConnectionLinesProps> = ({
               cx={midX}
               cy={midY}
               r="10"
-              fill="#ef4444"
+              fill="#f43f5e"
               className="opacity-0 group-hover:opacity-100 cursor-pointer transition-opacity"
               onClick={() => onDeleteConnection(conn.id)}
             />
@@ -85,7 +85,7 @@ export const ConnectionLines: React.FC<ConnectionLinesProps> = ({
               x={midX}
               y={midY - 12}
               textAnchor="middle"
-              className="fill-indigo-600 dark:fill-indigo-400 text-[11px] font-semibold select-none bg-white dark:bg-slate-900 px-1"
+              className="fill-brand-600 dark:fill-brand-400 text-[11px] font-semibold select-none bg-white dark:bg-ink-900 px-1"
             >
               {conn.label || ''}
             </text>

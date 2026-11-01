@@ -29,6 +29,10 @@ npm run lint
 npm run check:secrets
 ```
 
+To work on the interface without an account, run `VITE_UI_PREVIEW=1 npm run dev`. It skips sign-in and keeps
+edits in memory (nothing is saved). Add `?signin` to the URL to see the sign-in screen. Preview mode only exists in the
+dev server and is stripped from production builds.
+
 ---
 
 ## ☁️ Accounts (Supabase)
@@ -44,6 +48,25 @@ The Supabase project is configured by the deployment, never by users:
 
 Use the **anon / publishable** key only; never the `service_role` / `sb_secret_` key. Without these variables the app
 cannot be used; the sign-in screen reports that accounts are unavailable.
+
+### Sign-in redirects
+
+In Supabase → **Authentication → URL Configuration**, set **Site URL** to your deployed address (for example
+`https://cluster-snowy.vercel.app`) and add it, plus `http://localhost:5173/` for development, under **Redirect URLs**.
+Confirmation, password-reset and Google sign-in all return the user to the app's root URL.
+
+### Google sign-in
+
+The **Continue with Google** button uses Supabase's Google provider. To switch it on:
+
+1. In [Google Cloud Console](https://console.cloud.google.com/apis/credentials), configure the OAuth consent screen,
+   then create an **OAuth client ID** of type **Web application**.
+2. Under **Authorized redirect URIs** add your Supabase callback:
+   `https://<your-project-ref>.supabase.co/auth/v1/callback`.
+3. In Supabase → **Authentication → Sign In / Providers → Google**, enable it and paste the client ID and client secret.
+
+The client secret lives only in Supabase; nothing Google-related goes in the app's environment. Until the provider is
+enabled, the button shows "Google sign-in isn’t switched on for this app yet."
 
 ---
 

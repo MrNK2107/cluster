@@ -13,6 +13,7 @@ import {
   FolderOpen
 } from 'lucide-react';
 import type { BoardDocument, CardType } from '../types';
+import { Kbd } from './ui';
 
 interface CommandPaletteProps {
   isOpen: boolean;
@@ -85,55 +86,55 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
   const actions: PaletteItem[] = [
     {
       id: 'action-todo',
-      category: 'Quick Actions',
-      title: 'Create New Task Checklist',
+      category: 'Actions',
+      title: 'Add a to-do list',
       icon: CheckSquare,
       shortcut: 'T',
       perform: () => onAddCard('todo'),
     },
     {
       id: 'action-note',
-      category: 'Quick Actions',
-      title: 'Create Unstructured Note',
+      category: 'Actions',
+      title: 'Add a note',
       icon: FileText,
       shortcut: 'N',
       perform: () => onAddCard('note'),
     },
     {
       id: 'action-sticky',
-      category: 'Quick Actions',
-      title: 'Create Sticky Reminder',
+      category: 'Actions',
+      title: 'Add a sticky',
       icon: StickyNote,
       shortcut: 'S',
       perform: () => onAddCard('sticky'),
     },
     {
       id: 'action-cluster',
-      category: 'Quick Actions',
-      title: 'Create New Cluster Group',
+      category: 'Actions',
+      title: 'Add a cluster',
       icon: Layers,
       shortcut: 'C',
       perform: () => onAddCluster(),
     },
     {
       id: 'action-view',
-      category: 'Quick Actions',
-      title: `Switch View (Currently ${viewMode === 'canvas' ? 'Spatial Canvas' : 'Mobile Feed'})`,
+      category: 'Actions',
+      title: viewMode === 'canvas' ? 'Switch to list view' : 'Switch to canvas view',
       icon: viewMode === 'canvas' ? LayoutGrid : Map,
-      shortcut: 'V',
+      
       perform: () => onToggleViewMode(),
     },
     {
       id: 'action-theme',
-      category: 'Quick Actions',
-      title: `Toggle Theme (Currently ${theme === 'dark' ? 'Dark' : 'Light'})`,
+      category: 'Actions',
+      title: theme === 'dark' ? 'Use light theme' : 'Use dark theme',
       icon: theme === 'dark' ? Sun : Moon,
-      shortcut: 'M',
+      
       perform: () => onToggleTheme(),
     },
     {
       id: 'action-account',
-      category: 'Quick Actions',
+      category: 'Actions',
       title: 'Account',
       icon: UserRound,
       perform: () => onOpenAccount(),
@@ -142,26 +143,26 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
 
   const docItems: PaletteItem[] = documents.map((doc) => ({
     id: `doc-${doc.id}`,
-    category: 'Documents & Spaces',
-    title: `Switch to "${doc.title}"`,
+    category: 'Spaces',
+    title: doc.title,
     icon: FolderOpen,
-    subtitle: `${doc.clusters.length} clusters • ${doc.cards.length} cards`,
+    subtitle: `${doc.clusters.length} clusters, ${doc.cards.length} cards`,
     perform: () => onSelectDocument(doc.id),
   }));
 
   const cardItems: PaletteItem[] = activeDocument.cards.map((card) => {
-    let preview = card.title;
+    let preview = '';
     if (card.todos && card.todos.length > 0) {
-      preview += ` (${card.todos.filter(t => t.completed).length}/${card.todos.length} done)`;
+      preview = `${card.todos.filter(t => t.completed).length} of ${card.todos.length} done`;
     } else if (card.noteContent) {
-      preview += ` — ${card.noteContent.slice(0, 40)}`;
+      preview = card.noteContent.slice(0, 60);
     }
     return {
       id: `card-${card.id}`,
-      category: 'Cards & Notes in this Space',
+      category: 'Cards in this space',
       title: card.title,
       icon: card.type === 'todo' ? CheckSquare : card.type === 'note' ? FileText : StickyNote,
-      subtitle: preview,
+      subtitle: preview || undefined,
       perform: () => onFocusCard(card.id),
     };
   });
@@ -193,108 +194,94 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
     }
   };
 
+  let lastCategory = '';
+
   return (
     <div
-      onClick={onClose}
-      className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-start justify-center pt-20 px-4 z-50 select-none"
+      onMouseDown={onClose}
+      className="fixed inset-0 z-50 flex items-start justify-center px-4 pt-[12vh] bg-ink-950/45 backdrop-blur-[3px] animate-fade-in select-none"
     >
       <div
-        onClick={(e) => e.stopPropagation()}
-        className="bg-white/95 dark:bg-slate-900/95 border border-slate-200 dark:border-white/10 rounded-2xl shadow-2xl max-w-xl w-full overflow-hidden flex flex-col max-h-[70vh] glass-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Search and commands"
+        onMouseDown={(e) => e.stopPropagation()}
+        className="w-full max-w-xl max-h-[70vh] flex flex-col overflow-hidden rounded-3xl bg-white dark:bg-ink-900 ring-1 ring-ink-900/[0.06] dark:ring-white/10 float-shadow animate-pop-in"
       >
-        {/* Search Input Bar */}
-        <div className="flex items-center px-5 py-4 border-b border-slate-200 dark:border-slate-800 gap-3">
-          <Search className="w-4 h-4 text-slate-400 shrink-0" />
+        <div className="flex items-center gap-3 px-5 h-16 border-b border-ink-100 dark:border-ink-800">
+          <Search className="w-5 h-5 text-ink-400 shrink-0" />
           <input
             ref={inputRef}
-            type="text"
             value={query}
             onChange={(e) => {
               setQuery(e.target.value);
               setSelectedIndex(0);
             }}
             onKeyDown={handleKeyDown}
-            placeholder="Type a command, search tasks, or switch spaces..."
-            className="w-full bg-transparent text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 outline-none font-medium"
+            placeholder="Search cards, spaces and actions"
+            aria-label="Search"
+            className="w-full bg-transparent text-[16px] text-ink-900 dark:text-white placeholder:text-ink-400 outline-none"
           />
-          <kbd className="hidden sm:inline-block px-2 py-0.5 text-[10px] font-semibold bg-slate-100 dark:bg-white/10 text-slate-500 dark:text-slate-400 rounded-md border border-slate-200 dark:border-white/10">
-            ESC
-          </kbd>
+          <Kbd className="hidden sm:inline-flex">Esc</Kbd>
         </div>
 
-        {/* Results List */}
-        <div className="p-3 overflow-y-auto space-y-1 flex-1">
+        <div className="flex-1 overflow-y-auto p-2" role="listbox">
           {filtered.length === 0 ? (
-            <div className="py-12 text-center text-slate-400 text-xs">
-              No results found for "{query}".
+            <div className="py-14 text-center">
+              <p className="font-display text-lg font-bold text-ink-900 dark:text-white">No matches</p>
+              <p className="mt-1 text-sm text-ink-500 dark:text-ink-400">Try a card title, a space, or “add”.</p>
             </div>
           ) : (
             filtered.map((item, idx) => {
               const isSelected = idx === selectedIndex;
               const Icon = item.icon;
+              const heading = item.category !== lastCategory ? item.category : null;
+              lastCategory = item.category;
               return (
-                <div
-                  key={item.id}
-                  onClick={() => {
-                    item.perform();
-                    onClose();
-                  }}
-                  onMouseEnter={() => setSelectedIndex(idx)}
-                  className={`flex items-center justify-between px-3 py-2.5 rounded-xl cursor-pointer text-xs transition-colors ${
-                    isSelected
-                      ? 'bg-indigo-600 text-white font-semibold shadow-xs'
-                      : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/5'
-                  }`}
-                >
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <Icon className={`w-4 h-4 shrink-0 ${isSelected ? 'text-white' : 'text-slate-400'}`} />
-                    <div className="truncate">
-                      <div className="truncate">{item.title}</div>
+                <React.Fragment key={item.id}>
+                  {heading && <div className="px-3 pt-3 pb-1.5 text-[12px] font-semibold text-ink-400 dark:text-ink-500">{heading}</div>}
+                  <div
+                    role="option"
+                    aria-selected={isSelected}
+                    onClick={() => {
+                      item.perform();
+                      onClose();
+                    }}
+                    onMouseMove={() => setSelectedIndex(idx)}
+                    className={`flex items-center gap-3 px-3 h-12 rounded-xl cursor-pointer transition-colors ${
+                      isSelected ? 'bg-brand-600 text-white' : 'text-ink-700 dark:text-ink-200'
+                    }`}
+                  >
+                    <span
+                      className={`w-8 h-8 shrink-0 rounded-lg flex items-center justify-center ${
+                        isSelected ? 'bg-white/15' : 'bg-ink-100 dark:bg-ink-800 text-ink-500 dark:text-ink-400'
+                      }`}
+                    >
+                      <Icon className="w-4 h-4" />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-[14px] font-semibold">{item.title}</div>
                       {item.subtitle && (
-                        <div
-                          className={`text-[10px] truncate ${
-                            isSelected ? 'text-indigo-100' : 'text-slate-400 dark:text-slate-500'
-                          }`}
-                        >
+                        <div className={`truncate text-[12px] ${isSelected ? 'text-brand-100' : 'text-ink-400 dark:text-ink-500'}`}>
                           {item.subtitle}
                         </div>
                       )}
                     </div>
-                  </div>
-
-                  <div className="flex items-center gap-2 shrink-0 ml-2">
-                    <span
-                      className={`text-[10px] font-medium uppercase tracking-wider ${
-                        isSelected ? 'text-indigo-200' : 'text-slate-400'
-                      }`}
-                    >
-                      {item.category}
-                    </span>
                     {item.shortcut && (
-                      <kbd
-                        className={`px-1.5 py-0.5 rounded text-[10px] font-mono border ${
-                          isSelected
-                            ? 'bg-white/20 border-white/30 text-white'
-                            : 'bg-slate-100 dark:bg-white/10 border-slate-200 dark:border-white/10 text-slate-500 dark:text-slate-400'
-                        }`}
-                      >
+                      <Kbd className={isSelected ? 'bg-white/15 text-white ring-white/20 dark:bg-white/15 dark:text-white dark:ring-white/20' : ''}>
                         {item.shortcut}
-                      </kbd>
+                      </Kbd>
                     )}
                   </div>
-                </div>
+                </React.Fragment>
               );
             })
           )}
         </div>
 
-        {/* Footer */}
-        <div className="px-5 py-3 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-white/[0.02] flex items-center justify-between text-[11px] text-slate-400">
-          <div className="flex items-center gap-3">
-            <span>↑↓ to navigate</span>
-            <span>↵ to select</span>
-          </div>
-          <span>Clustr Spotlight</span>
+        <div className="hidden sm:flex items-center gap-4 px-5 h-11 border-t border-ink-100 dark:border-ink-800 text-[12px] text-ink-400">
+          <span className="flex items-center gap-1.5"><Kbd>↑</Kbd><Kbd>↓</Kbd> to move</span>
+          <span className="flex items-center gap-1.5"><Kbd>Enter</Kbd> to open</span>
         </div>
       </div>
     </div>

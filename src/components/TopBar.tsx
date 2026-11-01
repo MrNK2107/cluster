@@ -1,262 +1,198 @@
-import React, { useState } from 'react';
-import {
-  CheckSquare,
-  FileText,
-  StickyNote,
-  Hash,
-  Layers,
-  Moon,
-  Sun,
-  Menu,
-  Calculator,
-  X,
-  LayoutGrid,
-  Map,
-  Search,
-  Cloud,
-  CloudOff,
-  Loader2
-} from 'lucide-react';
-import type { BoardDocument, CardType } from '../types';
+import React, { useCallback, useState } from 'react';
+import { Moon, Sun, PanelLeftOpen, LayoutGrid, Rows3, Search, Hash, X, Check, CloudOff, Loader2 } from 'lucide-react';
+import type { BoardDocument } from '../types';
 import type { SaveState } from '../App';
+import { IconButton, MenuItem, MenuLabel, MenuPanel, useDismiss } from './ui';
+import { stripLeadingEmoji } from './Sidebar';
+import { cn } from '../utils/cn';
 
 interface TopBarProps {
   document: BoardDocument;
   theme: 'dark' | 'light';
   viewMode: 'canvas' | 'feed';
   saveState: SaveState;
+  sidebarOpen: boolean;
   activeTagFilter: string | null;
   allTags: string[];
   onToggleSidebar: () => void;
   onToggleTheme: () => void;
-  onToggleViewMode: () => void;
+  onSetViewMode: (mode: 'canvas' | 'feed') => void;
   onSelectTagFilter: (tag: string | null) => void;
-  onAddCard: (type: CardType) => void;
-  onAddCluster: () => void;
   onOpenCommandPalette: () => void;
   onUpdateDocTitle: (title: string) => void;
 }
+
+const SaveIndicator: React.FC<{ state: SaveState }> = ({ state }) => (
+  <span
+    role="status"
+    aria-live="polite"
+    title={state === 'error' ? 'Couldn’t save. Retrying in a moment.' : undefined}
+    className={cn(
+      'hidden sm:inline-flex shrink-0 items-center gap-1.5 h-6 px-2 rounded-full text-[12px] font-semibold transition-colors',
+      state === 'error' ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400' : 'text-ink-400 dark:text-ink-500',
+    )}
+  >
+    {state === 'saving' ? (
+      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+    ) : state === 'error' ? (
+      <CloudOff className="w-3.5 h-3.5" />
+    ) : (
+      <Check className="w-3.5 h-3.5 text-mint-500" />
+    )}
+    {state === 'error' ? 'Not saved' : state === 'saving' ? 'Saving' : 'Saved'}
+  </span>
+);
+
+const ViewSwitch: React.FC<{ value: 'canvas' | 'feed'; onChange: (v: 'canvas' | 'feed') => void }> = ({ value, onChange }) => (
+  <div role="radiogroup" aria-label="View" className="flex items-center p-1 rounded-xl bg-ink-100 dark:bg-ink-800/80">
+    {(
+      [
+        ['canvas', 'Canvas', LayoutGrid],
+        ['feed', 'List', Rows3],
+      ] as const
+    ).map(([mode, label, Icon]) => (
+      <button
+        key={mode}
+        type="button"
+        role="radio"
+        aria-checked={value === mode}
+        onClick={() => onChange(mode)}
+        className={cn(
+          'flex items-center gap-1.5 h-8 px-2.5 sm:px-3 rounded-lg text-[13px] font-semibold transition-all',
+          value === mode
+            ? 'bg-white text-ink-950 shadow-[0_1px_3px_rgba(20,20,60,0.12)] dark:bg-ink-950 dark:text-white'
+            : 'text-ink-500 hover:text-ink-900 dark:text-ink-400 dark:hover:text-white',
+        )}
+      >
+        <Icon className="w-4 h-4" />
+        <span className="hidden sm:inline">{label}</span>
+      </button>
+    ))}
+  </div>
+);
 
 export const TopBar: React.FC<TopBarProps> = ({
   document,
   theme,
   viewMode,
   saveState,
+  sidebarOpen,
   activeTagFilter,
   allTags,
   onToggleSidebar,
   onToggleTheme,
-  onToggleViewMode,
+  onSetViewMode,
   onSelectTagFilter,
-  onAddCard,
-  onAddCluster,
   onOpenCommandPalette,
   onUpdateDocTitle,
 }) => {
-  const [isEditingTitle, setIsEditingTitle] = useState(false);
-  const [showTagMenu, setShowTagMenu] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [tagMenu, setTagMenu] = useState(false);
+  const closeTags = useCallback(() => setTagMenu(false), []);
+  const tagRef = useDismiss(tagMenu, closeTags);
+  const title = stripLeadingEmoji(document.title, document.icon);
+
+  const commitTitle = (value: string) => {
+    const next = value.trim() || 'Untitled space';
+    onUpdateDocTitle(document.icon && document.title.startsWith(document.icon) ? `${document.icon} ${next}` : next);
+    setEditing(false);
+  };
 
   return (
-    <header className="h-16 shrink-0 border-b border-slate-200 dark:border-slate-800 bg-white/85 dark:bg-slate-900/85 px-4 sm:px-6 flex items-center justify-between gap-4 z-30 select-none glass-panel">
-      {/* Left: Sidebar toggle + Document title */}
-      <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
-        <button
+    <header className="relative z-30 h-16 shrink-0 flex items-center gap-2 sm:gap-3 px-3 sm:px-5 bg-white/80 dark:bg-ink-950/80 border-b border-ink-200/70 dark:border-white/[0.06] glass-panel select-none">
+      {/* Left */}
+      <div className="flex items-center gap-1.5 sm:gap-2.5 min-w-0 flex-1">
+        <IconButton
+          label={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
           onClick={onToggleSidebar}
-          className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100 transition-colors shrink-0"
-          title="Toggle Documents Sidebar"
+          className={cn(sidebarOpen && 'md:hidden')}
         >
-          <Menu className="w-5 h-5" />
-        </button>
+          <PanelLeftOpen className="w-[18px] h-[18px]" />
+        </IconButton>
 
-        <div className="flex items-center gap-2.5 min-w-0">
-          <span className="text-lg shrink-0 w-9 h-9 flex items-center justify-center rounded-lg bg-slate-100 dark:bg-slate-800">{document.icon || '📝'}</span>
-          {isEditingTitle ? (
-            <input
-              type="text"
-              autoFocus
-              defaultValue={document.title}
-              onBlur={(e) => {
-                onUpdateDocTitle(e.target.value.trim() || 'Untitled Document');
-                setIsEditingTitle(false);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  onUpdateDocTitle((e.target as HTMLInputElement).value.trim() || 'Untitled Document');
-                  setIsEditingTitle(false);
-                }
-              }}
-              className="font-bold text-slate-800 dark:text-slate-100 text-sm sm:text-base bg-slate-100 dark:bg-slate-800 px-2.5 py-1 rounded-lg outline-none ring-2 ring-indigo-500"
-            />
-          ) : (
-            <h1
-              onClick={() => setIsEditingTitle(true)}
-              className="font-bold text-slate-800 dark:text-slate-100 text-sm sm:text-base tracking-tight truncate cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 px-2.5 py-1 rounded-lg transition-colors"
-              title="Click to rename"
-            >
-              {document.title}
-            </h1>
-          )}
-          <span
-            className={`shrink-0 flex items-center gap-1 text-[11px] font-medium ${
-              saveState === 'error' ? 'text-rose-500' : 'text-slate-400 dark:text-slate-500'
-            }`}
-            title={saveState === 'error' ? 'Could not save. Retrying…' : saveState === 'saving' ? 'Saving…' : 'All changes saved'}
-            role="status"
+        <span className="hidden sm:flex w-9 h-9 shrink-0 items-center justify-center rounded-[10px] bg-ink-100 dark:bg-ink-800 text-lg">
+          {document.icon || '📝'}
+        </span>
+
+        {editing ? (
+          <input
+            autoFocus
+            defaultValue={title}
+            aria-label="Space name"
+            onBlur={(e) => commitTitle(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') commitTitle((e.target as HTMLInputElement).value);
+              if (e.key === 'Escape') setEditing(false);
+            }}
+            className="min-w-0 flex-1 max-w-md h-9 px-2 -ml-0.5 rounded-lg font-display text-lg font-bold tracking-tight bg-ink-100 dark:bg-ink-800 text-ink-950 dark:text-white outline-none ring-2 ring-brand-500"
+          />
+        ) : (
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            title="Rename space"
+            className="min-w-0 truncate h-9 px-2 -ml-0.5 rounded-lg font-display text-lg font-bold tracking-tight text-ink-950 dark:text-white hover:bg-ink-100 dark:hover:bg-ink-800 transition-colors"
           >
-            {saveState === 'saving' ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            ) : saveState === 'error' ? (
-              <CloudOff className="w-3.5 h-3.5" />
-            ) : (
-              <Cloud className="w-3.5 h-3.5" />
-            )}
-            <span className="hidden sm:inline">
-              {saveState === 'error' ? 'Not saved' : saveState === 'saving' ? 'Saving' : 'Saved'}
-            </span>
-          </span>
-        </div>
+            {title}
+          </button>
+        )}
+
+        <SaveIndicator state={saveState} />
       </div>
 
-      {/* Center: Quick Creation Toolbar (Desktop) */}
-      <div className="hidden lg:flex shrink-0 items-center gap-1 bg-slate-100 dark:bg-slate-800/60 p-1 rounded-xl border border-slate-200 dark:border-slate-800">
-        <button
-          onClick={() => onAddCard('todo')}
-          className="flex items-center gap-1.5 px-3 py-1.5 whitespace-nowrap text-xs font-medium rounded-lg text-slate-700 dark:text-slate-200 hover:bg-white dark:hover:bg-slate-900 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors active:scale-[0.98]"
-        >
-          <CheckSquare className="w-3.5 h-3.5 text-indigo-500" />
-          <span>+ Todo</span>
-        </button>
-
-        <button
-          onClick={() => onAddCard('note')}
-          className="flex items-center gap-1.5 px-3 py-1.5 whitespace-nowrap text-xs font-medium rounded-lg text-slate-700 dark:text-slate-200 hover:bg-white dark:hover:bg-slate-900 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors active:scale-[0.98]"
-        >
-          <FileText className="w-3.5 h-3.5 text-emerald-500" />
-          <span>+ Note</span>
-        </button>
-
-        <button
-          onClick={() => onAddCard('sticky')}
-          className="flex items-center gap-1.5 px-3 py-1.5 whitespace-nowrap text-xs font-medium rounded-lg text-slate-700 dark:text-slate-200 hover:bg-white dark:hover:bg-slate-900 hover:text-amber-600 dark:hover:text-amber-400 transition-colors active:scale-[0.98]"
-        >
-          <StickyNote className="w-3.5 h-3.5 text-amber-500" />
-          <span>+ Sticky</span>
-        </button>
-
-        <button
-          onClick={() => onAddCard('counter')}
-          className="flex items-center gap-1.5 px-3 py-1.5 whitespace-nowrap text-xs font-medium rounded-lg text-slate-700 dark:text-slate-200 hover:bg-white dark:hover:bg-slate-900 hover:text-pink-600 dark:hover:text-pink-400 transition-colors active:scale-[0.98]"
-        >
-          <Calculator className="w-3.5 h-3.5 text-pink-500" />
-          <span>+ Tally</span>
-        </button>
-
-        <div className="w-px h-5 bg-slate-300 dark:bg-slate-700 mx-1" />
-
-        <button
-          onClick={onAddCluster}
-          className="flex items-center gap-1.5 px-3 py-1.5 whitespace-nowrap text-xs font-semibold rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition-colors active:scale-[0.98]"
-        >
-          <Layers className="w-3.5 h-3.5" />
-          <span>+ Cluster</span>
-        </button>
-      </div>
-
-      {/* Right Controls */}
-      <div className="flex items-center gap-2 shrink-0">
-        {/* Spotlight Search button (Cmd+K) */}
-        <button
-          onClick={onOpenCommandPalette}
-          className="hidden sm:flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-600 transition-colors"
-          title="Open Command Palette"
-        >
-          <Search className="w-3.5 h-3.5 text-slate-400" />
-          <span className="hidden 2xl:inline">Search</span>
-          <kbd className="text-[10px] font-mono px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-400 border border-slate-200 dark:border-slate-700">
-            ⌘K
-          </kbd>
-        </button>
-
-        {/* View Mode Toggle (Mobile Feed vs Spatial Canvas) */}
-        <button
-          onClick={onToggleViewMode}
-          className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
-          title={`Switch to ${viewMode === 'feed' ? 'Spatial Canvas' : 'Mobile Feed'} view`}
-        >
-          {viewMode === 'feed' ? (
-            <>
-              <Map className="w-3.5 h-3.5 text-indigo-500" />
-              <span className="hidden 2xl:inline">Canvas</span>
-            </>
-          ) : (
-            <>
-              <LayoutGrid className="w-3.5 h-3.5 text-emerald-500" />
-              <span className="hidden 2xl:inline">Feed</span>
-            </>
-          )}
-        </button>
-
-        {/* Tag Filter Dropdown */}
+      {/* Right */}
+      <div className="flex items-center gap-1 sm:gap-2 shrink-0">
         {allTags.length > 0 && (
-          <div className="relative hidden md:block">
-            <button
-              onClick={() => setShowTagMenu(!showTagMenu)}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium border transition-colors ${
-                activeTagFilter
-                  ? 'bg-indigo-50 border-indigo-200 text-indigo-700 dark:bg-indigo-500/10 dark:border-indigo-500/30 dark:text-indigo-300'
-                  : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
-              }`}
-            >
-              <Hash className="w-3 h-3" />
-              <span>{activeTagFilter || 'Tags'}</span>
-              {activeTagFilter && (
-                <X
-                  className="w-3 h-3 hover:text-rose-500 ml-1"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onSelectTagFilter(null);
-                  }}
-                />
-              )}
-            </button>
-            {showTagMenu && (
-              <div className="absolute right-0 top-full mt-1.5 w-48 bg-white dark:bg-slate-900 rounded-xl shadow-xl border border-slate-200 dark:border-slate-800 p-1.5 z-50 text-xs">
-                <button
-                  onClick={() => {
-                    onSelectTagFilter(null);
-                    setShowTagMenu(false);
-                  }}
-                  className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 font-medium"
-                >
-                  Show All Cards
+          <div ref={tagRef} className="relative">
+            {activeTagFilter ? (
+              <span className="inline-flex items-center h-9 pl-3 pr-1 gap-1 rounded-xl bg-sun-300 text-ink-950 text-[13px] font-semibold">
+                <button type="button" onClick={() => setTagMenu((o) => !o)} className="max-w-28 truncate">
+                  {activeTagFilter}
                 </button>
+                <button
+                  type="button"
+                  aria-label="Clear tag filter"
+                  onClick={() => onSelectTagFilter(null)}
+                  className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-black/10"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </span>
+            ) : (
+              <IconButton label="Filter by tag" onClick={() => setTagMenu((o) => !o)}>
+                <Hash className="w-[18px] h-[18px]" />
+              </IconButton>
+            )}
+            {tagMenu && (
+              <MenuPanel className="right-0 top-full mt-2 w-56 max-h-80 overflow-y-auto">
+                <MenuLabel>Show only cards tagged</MenuLabel>
                 {allTags.map((t) => (
-                  <button
+                  <MenuItem
                     key={t}
+                    active={activeTagFilter === t}
                     onClick={() => {
-                      onSelectTagFilter(t);
-                      setShowTagMenu(false);
+                      onSelectTagFilter(activeTagFilter === t ? null : t);
+                      setTagMenu(false);
                     }}
-                    className={`w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 font-medium ${
-                      activeTagFilter === t ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10' : 'text-slate-700 dark:text-slate-300'
-                    }`}
+                    hint={activeTagFilter === t ? <Check className="w-4 h-4" /> : undefined}
                   >
                     {t}
-                  </button>
+                  </MenuItem>
                 ))}
-              </div>
+              </MenuPanel>
             )}
           </div>
         )}
 
-        {/* Theme Toggle */}
-        <button
-          onClick={onToggleTheme}
-          className="p-2 rounded-lg bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 transition-colors"
-          title={`Switch to ${theme === 'dark' ? 'Light' : 'Dark'} mode`}
-        >
-          {theme === 'dark' ? <Sun className="w-3.5 h-3.5 text-amber-400" /> : <Moon className="w-3.5 h-3.5 text-indigo-600" />}
-        </button>
+        <ViewSwitch value={viewMode} onChange={onSetViewMode} />
+
+        <IconButton label="Search" onClick={onOpenCommandPalette} className={cn(sidebarOpen && 'md:hidden')}>
+          <Search className="w-[18px] h-[18px]" />
+        </IconButton>
+
+        <IconButton label={theme === 'dark' ? 'Use light theme' : 'Use dark theme'} onClick={onToggleTheme} className="max-sm:hidden">
+          {theme === 'dark' ? <Sun className="w-[18px] h-[18px]" /> : <Moon className="w-[18px] h-[18px]" />}
+        </IconButton>
       </div>
     </header>
   );

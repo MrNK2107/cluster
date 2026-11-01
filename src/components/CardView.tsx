@@ -1,589 +1,579 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   Check,
   Trash2,
-  Plus,
   MoreHorizontal,
-  GripVertical,
   Palette,
-  Tag,
-  ExternalLink,
+  Link2,
   Minus,
+  Plus,
   Copy,
-  Layers
+  Flag,
+  CornerDownLeft,
+  Tag,
+  X,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import type { CardData, CardColor, TodoItem, BookmarkItem, Cluster } from '../types';
-import { COLOR_MAP } from '../utils/storage';
+import { COLOR_MAP, COLOR_ORDER, colorTheme } from '../theme/colors';
 import { safeHref, normalizeBookmarkUrl } from '../utils/validate';
+import { IconButton, MenuDivider, MenuItem, MenuLabel, MenuPanel, useDismiss } from './ui';
+import { cn } from '../utils/cn';
+
+/* --------------------------------------------------------------------------
+ * Shared card logic, used by both the canvas card and the list view.
+ * ----------------------------------------------------------------------- */
+
+const newId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+
+export const celebrate = (y = 0.6) =>
+  confetti({
+    particleCount: 60,
+    spread: 70,
+    startVelocity: 32,
+    origin: { y },
+    colors: ['#3d5afe', '#ffc93c', '#19c39b', '#ec4899'],
+    disableForReducedMotion: true,
+  });
+
+export const toggleTodo = (card: CardData, todoId: string): TodoItem[] => {
+  const todos = (card.todos ?? []).map((t) => (t.id === todoId ? { ...t, completed: !t.completed } : t));
+  const wasDone = (card.todos ?? []).every((t) => t.completed);
+  if (!wasDone && todos.length > 0 && todos.every((t) => t.completed)) celebrate();
+  return todos;
+};
+
+export const nextPriority = (p: TodoItem['priority']): TodoItem['priority'] =>
+  p === 'high' ? 'low' : p === 'low' ? 'medium' : 'high';
+
+/** Adds a task; `#tags` typed in the text are added to the card. */
+export const addTodo = (card: CardData, text: string): Partial<CardData> => {
+  const found = text.match(/#[\p{L}\p{N}_-]+/gu) ?? [];
+  const tags = [...card.tags];
+  for (const t of found) if (!tags.includes(t)) tags.push(t);
+  return {
+    todos: [...(card.todos ?? []), { id: newId('todo'), text: text.trim(), completed: false, priority: 'medium' }],
+    tags,
+  };
+};
+
+export const Checkbox: React.FC<{ checked: boolean; onToggle: () => void; size?: 'md' | 'lg' }> = ({ checked, onToggle, size = 'md' }) => (
+  <button
+    type="button"
+    role="checkbox"
+    aria-checked={checked}
+    aria-label={checked ? 'Mark as not done' : 'Mark as done'}
+    onClick={onToggle}
+    className={cn(
+      'shrink-0 rounded-full flex items-center justify-center transition-all duration-200',
+      size === 'lg' ? 'w-6 h-6' : 'w-[18px] h-[18px]',
+      checked
+        ? 'bg-mint-500 text-white'
+        : 'ring-[1.5px] ring-inset ring-ink-300 hover:ring-mint-500 hover:bg-mint-500/10 dark:ring-ink-600',
+    )}
+  >
+    {checked && <Check className={cn('stroke-[3.5] animate-check', size === 'lg' ? 'w-3.5 h-3.5' : 'w-3 h-3')} />}
+  </button>
+);
+
+export const Progress: React.FC<{ done: number; total: number }> = ({ done, total }) => {
+  const pct = total ? Math.round((done / total) * 100) : 0;
+  const complete = total > 0 && done === total;
+  return (
+    <div className="flex items-center gap-2.5">
+      <div className="h-1.5 flex-1 rounded-full bg-ink-900/[0.07] dark:bg-white/10 overflow-hidden">
+        <div
+          className={cn('h-full rounded-full transition-[width,background-color] duration-500 ease-[var(--ease-out-quint)]', complete ? 'bg-mint-500' : 'bg-sun-400')}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <span className={cn('text-[12px] font-semibold tabular-nums', complete ? 'text-mint-600 dark:text-mint-400' : 'text-ink-500 dark:text-ink-400')}>
+        {complete ? 'All done' : `${done} of ${total}`}
+      </span>
+    </div>
+  );
+};
+
+export const ColorSwatches: React.FC<{ value: CardColor; onPick: (c: CardColor) => void }> = ({ value, onPick }) => (
+  <div className="grid grid-cols-4 gap-1.5 p-1">
+    {COLOR_ORDER.map((c) => (
+      <button
+        key={c}
+        type="button"
+        aria-label={COLOR_MAP[c].label}
+        title={COLOR_MAP[c].label}
+        onClick={() => onPick(c)}
+        className={cn(
+          'w-8 h-8 rounded-full flex items-center justify-center transition-transform hover:scale-110',
+          COLOR_MAP[c].swatch,
+          value === c && 'ring-2 ring-offset-2 ring-ink-900 ring-offset-white dark:ring-white dark:ring-offset-ink-900',
+        )}
+      >
+        {value === c && <Check className={cn('w-4 h-4 stroke-[3]', c === 'yellow' ? 'text-ink-950' : 'text-white')} />}
+      </button>
+    ))}
+  </div>
+);
+
+/* --------------------------------------------------------------------------
+ * Canvas card
+ * ----------------------------------------------------------------------- */
 
 interface CardViewProps {
   card: CardData;
   clusters: Cluster[];
   isSelected: boolean;
+  /** Laid out by its cluster rather than placed at x/y. */
+  inFlow?: boolean;
+  isDragging?: boolean;
   onSelect: () => void;
   onUpdate: (updated: Partial<CardData>) => void;
   onDelete: () => void;
   onDuplicate: () => void;
   onStartDrag: (e: React.MouseEvent, cardId: string) => void;
-  onStartConnect?: (cardId: string) => void;
 }
+
+const stop = {
+  onClick: (e: React.SyntheticEvent) => e.stopPropagation(),
+  onMouseDown: (e: React.SyntheticEvent) => e.stopPropagation(),
+};
 
 export const CardView: React.FC<CardViewProps> = ({
   card,
   clusters,
   isSelected,
+  inFlow = false,
+  isDragging = false,
   onSelect,
   onUpdate,
   onDelete,
   onDuplicate,
   onStartDrag,
 }) => {
-  const [showColorPicker, setShowColorPicker] = useState(false);
-  const [showMenu, setShowMenu] = useState(false);
-  const [newTodoText, setNewTodoText] = useState('');
-  const [newTagInput, setNewTagInput] = useState('');
-  const [showTagInput, setShowTagInput] = useState(false);
-  const [newBookmarkTitle, setNewBookmarkTitle] = useState('');
-  const [newBookmarkUrl, setNewBookmarkUrl] = useState('');
-  const [showAddBookmark, setShowAddBookmark] = useState(false);
+  const [popover, setPopover] = useState<'color' | 'menu' | null>(null);
+  const closePopover = useCallback(() => setPopover(null), []);
+  const popRef = useDismiss(popover !== null, closePopover);
 
-  const colors: CardColor[] = ['default', 'blue', 'green', 'yellow', 'purple', 'pink', 'amber', 'rose'];
-  const colorTheme = COLOR_MAP[card.color] || COLOR_MAP.default;
+  const [newTodo, setNewTodo] = useState('');
+  const [tagDraft, setTagDraft] = useState<string | null>(null);
+  const [linkDraft, setLinkDraft] = useState<{ title: string; url: string } | null>(null);
+  const [linkError, setLinkError] = useState(false);
 
-  // Handle Todo toggle
-  const handleToggleTodo = (todoId: string) => {
-    if (!card.todos) return;
-    const updated = card.todos.map((t) => {
-      if (t.id === todoId) {
-        return { ...t, completed: !t.completed };
-      }
-      return t;
-    });
-
-    onUpdate({ todos: updated });
-
-    const allDone = updated.length > 0 && updated.every((t) => t.completed);
-    if (allDone) {
-      confetti({
-        particleCount: 45,
-        spread: 60,
-        origin: { y: 0.6 },
-      });
-    }
-  };
-
-  const handleAddTodo = (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if (!newTodoText.trim()) return;
-
-    const extractedTags = (newTodoText.match(/#[a-zA-Z0-9_-]+/g) || []);
-    let updatedTags = [...card.tags];
-    extractedTags.forEach(t => {
-      if (!updatedTags.includes(t)) updatedTags.push(t);
-    });
-
-    const newTodo: TodoItem = {
-      id: `todo-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
-      text: newTodoText.trim(),
-      completed: false,
-      priority: 'medium',
-    };
-
-    onUpdate({
-      todos: [...(card.todos || []), newTodo],
-      tags: updatedTags,
-    });
-    setNewTodoText('');
-  };
-
-  const handleDeleteTodo = (todoId: string) => {
-    if (!card.todos) return;
-    onUpdate({
-      todos: card.todos.filter((t) => t.id !== todoId),
-    });
-  };
-
-  const handleAddTag = () => {
-    if (!newTagInput.trim()) return;
-    let formatted = newTagInput.trim();
-    if (!formatted.startsWith('#')) formatted = '#' + formatted;
-    if (!card.tags.includes(formatted)) {
-      onUpdate({ tags: [...card.tags, formatted] });
-    }
-    setNewTagInput('');
-    setShowTagInput(false);
-  };
-
-  const handleRemoveTag = (tagToRemove: string) => {
-    onUpdate({
-      tags: card.tags.filter((t) => t !== tagToRemove),
-    });
-  };
-
-  const handleAddBookmark = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newBookmarkTitle.trim() || !newBookmarkUrl.trim()) return;
-
-    const url = normalizeBookmarkUrl(newBookmarkUrl);
-    if (!url) return;
-
-    const newBm: BookmarkItem = {
-      id: `bm-${Date.now()}`,
-      title: newBookmarkTitle.trim(),
-      url,
-    };
-
-    onUpdate({
-      bookmarks: [...(card.bookmarks || []), newBm],
-    });
-    setNewBookmarkTitle('');
-    setNewBookmarkUrl('');
-    setShowAddBookmark(false);
-  };
-
-  const completedCount = card.todos ? card.todos.filter((t) => t.completed).length : 0;
-  const totalCount = card.todos ? card.todos.length : 0;
-  const progressPercent = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
-
-  // Sticky tilt styling
+  const theme = colorTheme(card.color);
   const isSticky = card.type === 'sticky';
+  const todos = card.todos ?? [];
+  const done = todos.filter((t) => t.completed).length;
+
+  const commitTag = () => {
+    const raw = (tagDraft ?? '').trim().replace(/\s+/g, '-');
+    if (raw) {
+      const tag = raw.startsWith('#') ? raw : `#${raw}`;
+      if (!card.tags.includes(tag)) onUpdate({ tags: [...card.tags, tag] });
+    }
+    setTagDraft(null);
+  };
+
+  const commitLink = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!linkDraft) return;
+    const url = normalizeBookmarkUrl(linkDraft.url);
+    if (!url) {
+      setLinkError(true);
+      return;
+    }
+    const bm: BookmarkItem = { id: newId('bm'), title: linkDraft.title.trim() || url.replace(/^\w+:(\/\/)?/, ''), url };
+    onUpdate({ bookmarks: [...(card.bookmarks ?? []), bm] });
+    setLinkDraft(null);
+    setLinkError(false);
+  };
 
   return (
-    <div
+    <article
       onClick={(e) => {
         e.stopPropagation();
         onSelect();
       }}
-      style={{
-        position: 'absolute',
-        left: `${card.x}px`,
-        top: `${card.y}px`,
-        width: `${card.width || 320}px`,
-        zIndex: isSelected ? 30 : 10,
-        transform: isSticky ? 'rotate(-0.4deg)' : undefined,
-      }}
-      className={`group rounded-2xl border transition-all duration-200 ${colorTheme.bg} ${colorTheme.border} ${
-        isSelected
-          ? 'ring-2 ring-indigo-500 shadow-2xl scale-[1.01]'
-          : 'card-shadow dark:card-shadow-dark hover:card-shadow-hover hover:-translate-y-0.5'
-      } flex flex-col overflow-hidden`}
+      style={
+        inFlow
+          ? { position: 'relative', zIndex: popover ? 30 : undefined, rotate: isSticky ? '-0.6deg' : undefined }
+          : {
+              position: 'absolute',
+              left: card.x,
+              top: card.y,
+              width: card.width || 320,
+              zIndex: isDragging ? 40 : isSelected || popover ? 30 : 10,
+              rotate: isDragging ? '1.5deg' : isSticky ? '-0.6deg' : undefined,
+            }
+      }
+      className={cn(
+        'group/card flex flex-col rounded-[18px] transition-[box-shadow,transform] duration-200',
+        isSticky ? theme.soft : 'bg-white dark:bg-ink-900 ring-1 ring-ink-900/[0.06] dark:ring-white/[0.07]',
+        isDragging
+          ? 'float-shadow scale-[1.02] cursor-grabbing'
+          : isSelected
+            ? 'glow-brand'
+            : 'card-shadow dark:card-shadow-dark hover:card-shadow-hover',
+      )}
     >
-      {/* Designer Card Header */}
-      <div
+      {/* Header: drag handle */}
+      <header
         onMouseDown={(e) => onStartDrag(e, card.id)}
-        className={`flex items-center justify-between px-4 py-3 cursor-grab active:cursor-grabbing border-b ${colorTheme.border} ${colorTheme.header} select-none`}
+        className="flex items-center gap-2 pl-4 pr-2 pt-3 pb-1 cursor-grab active:cursor-grabbing select-none"
       >
-        <div className="flex items-center gap-1.5 flex-1 min-w-0 mr-2">
-          <GripVertical className="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-300 shrink-0 transition-colors" />
-          <input
-            type="text"
-            value={card.title}
-            onChange={(e) => onUpdate({ title: e.target.value })}
-            placeholder="Untitled card..."
-            className="w-full bg-transparent font-semibold text-xs tracking-tight text-slate-800 dark:text-slate-100 outline-none truncate focus:bg-white/50 dark:focus:bg-black/40 rounded px-1.5 py-0.5 transition-colors"
-            onClick={(e) => e.stopPropagation()}
-            onMouseDown={(e) => e.stopPropagation()}
-          />
-        </div>
+        {!isSticky && <span className={cn('w-2.5 h-2.5 shrink-0 rounded-full', theme.swatch)} aria-hidden="true" />}
+        <input
+          {...stop}
+          value={card.title}
+          onChange={(e) => onUpdate({ title: e.target.value })}
+          placeholder="Untitled"
+          aria-label="Card title"
+          className={cn(
+            'min-w-0 flex-1 bg-transparent outline-none rounded-md px-1 -mx-1 py-0.5 truncate font-display font-bold tracking-tight text-ink-950 dark:text-white placeholder:text-ink-400 focus:bg-ink-900/[0.05] dark:focus:bg-white/[0.06]',
+            isSticky ? 'text-[13px] opacity-70' : 'text-[15px]',
+          )}
+        />
+        <div
+          ref={popRef}
+          {...stop}
+          className={cn(
+            'relative flex items-center transition-opacity',
+            isSelected || popover ? 'opacity-100' : 'opacity-0 group-hover/card:opacity-100 focus-within:opacity-100',
+          )}
+        >
+          <IconButton label="Add tag" size="sm" onClick={() => setTagDraft('')}>
+            <Tag className="w-4 h-4" />
+          </IconButton>
+          <IconButton label="Colour" size="sm" onClick={() => setPopover(popover === 'color' ? null : 'color')}>
+            <Palette className="w-4 h-4" />
+          </IconButton>
+          <IconButton label="More" size="sm" onClick={() => setPopover(popover === 'menu' ? null : 'menu')}>
+            <MoreHorizontal className="w-4 h-4" />
+          </IconButton>
 
-        <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
-          {/* Card Type Pill */}
-          <span className="text-[9px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded-md bg-black/5 dark:bg-white/10 text-slate-600 dark:text-slate-300 font-mono">
-            {card.type}
-          </span>
-
-          {/* Color Switcher */}
-          <div className="relative">
-            <button
-              onClick={() => setShowColorPicker(!showColorPicker)}
-              className="p-1.5 rounded-md hover:bg-black/5 dark:hover:bg-white/10 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
-              title="Change tint"
-            >
-              <Palette className="w-3.5 h-3.5" />
-            </button>
-            {showColorPicker && (
-              <div className="absolute right-0 top-full mt-1.5 p-2 bg-white dark:bg-slate-900 rounded-xl shadow-xl border border-slate-200 dark:border-slate-800 flex gap-1.5 z-50">
-                {colors.map((c) => (
-                  <button
-                    key={c}
-                    onClick={() => {
-                      onUpdate({ color: c });
-                      setShowColorPicker(false);
-                    }}
-                    className={`w-5 h-5 rounded-full border border-black/10 dark:border-white/20 transition-transform hover:scale-125 ${
-                      card.color === c ? 'ring-2 ring-indigo-500 scale-110' : ''
-                    } ${
-                      c === 'default' ? 'bg-slate-300' :
-                      c === 'yellow' ? 'bg-amber-400' :
-                      c === 'green' ? 'bg-emerald-400' :
-                      c === 'blue' ? 'bg-sky-400' :
-                      c === 'purple' ? 'bg-purple-400' :
-                      c === 'pink' ? 'bg-pink-400' :
-                      c === 'amber' ? 'bg-orange-400' : 'bg-rose-400'
-                    }`}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* More options menu */}
-          <div className="relative">
-            <button
-              onClick={() => setShowMenu(!showMenu)}
-              className="p-1.5 rounded-md hover:bg-black/5 dark:hover:bg-white/10 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
-            >
-              <MoreHorizontal className="w-3.5 h-3.5" />
-            </button>
-            {showMenu && (
-              <div className="absolute right-0 top-full mt-1.5 w-44 bg-white dark:bg-slate-900 rounded-xl shadow-xl border border-slate-200 dark:border-slate-800 p-1.5 z-50 text-xs">
-                <button
-                  onClick={() => {
-                    onDuplicate();
-                    setShowMenu(false);
-                  }}
-                  className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 text-slate-700 dark:text-slate-200"
-                >
-                  <Copy className="w-3.5 h-3.5" /> Duplicate Card
-                </button>
-
-                {/* Move to Cluster */}
-                <div className="px-3 py-1 font-semibold text-[10px] text-slate-400 uppercase tracking-wider border-t border-slate-100 dark:border-slate-800 mt-1.5 pt-2">
-                  Assign Cluster
-                </div>
-                <button
-                  onClick={() => {
-                    onUpdate({ clusterId: null });
-                    setShowMenu(false);
-                  }}
-                  className={`w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 ${
-                    !card.clusterId ? 'text-indigo-600 font-semibold' : 'text-slate-700 dark:text-slate-300'
-                  }`}
-                >
-                  <Layers className="w-3 h-3" /> Floating (None)
-                </button>
-                {clusters.map((cl) => (
-                  <button
-                    key={cl.id}
-                    onClick={() => {
-                      onUpdate({ clusterId: cl.id });
-                      setShowMenu(false);
-                    }}
-                    className={`w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 truncate ${
-                      card.clusterId === cl.id ? 'text-indigo-600 font-semibold' : 'text-slate-700 dark:text-slate-300'
-                    }`}
-                  >
-                    <span className="w-2 h-2 rounded-full bg-indigo-500 shrink-0" />
-                    <span className="truncate">{cl.title}</span>
-                  </button>
-                ))}
-
-                <button
-                  onClick={() => {
-                    onDelete();
-                    setShowMenu(false);
-                  }}
-                  className="w-full text-left px-3 py-2 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-500/10 text-rose-600 dark:text-rose-400 flex items-center gap-2 border-t border-slate-100 dark:border-slate-800 mt-1.5 pt-2"
-                >
-                  <Trash2 className="w-3.5 h-3.5" /> Delete Card
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Tags section */}
-      <div
-        className="px-4 pt-3 flex flex-wrap items-center gap-1.5"
-        onClick={(e) => e.stopPropagation()}
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        {card.tags.map((tag) => (
-          <span
-            key={tag}
-            className="group/tag inline-flex items-center text-[10px] font-semibold px-2 py-0.5 rounded-md bg-black/5 dark:bg-white/10 text-slate-700 dark:text-slate-300 hover:bg-rose-100 hover:text-rose-700 dark:hover:bg-rose-950/60 dark:hover:text-rose-300 transition-colors cursor-pointer"
-            onClick={() => handleRemoveTag(tag)}
-            title="Click to remove tag"
-          >
-            {tag}
-            <span className="ml-1 opacity-0 group-hover/tag:opacity-100 text-[10px]">×</span>
-          </span>
-        ))}
-        {showTagInput ? (
-          <div className="flex items-center gap-1">
-            <input
-              type="text"
-              autoFocus
-              value={newTagInput}
-              onChange={(e) => setNewTagInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') handleAddTag();
-                if (e.key === 'Escape') setShowTagInput(false);
-              }}
-              placeholder="#tag..."
-              className="text-xs px-2 py-0.5 border border-slate-300 dark:border-white/20 rounded-md bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 outline-none w-20"
-            />
-            <button
-              onClick={handleAddTag}
-              className="text-xs text-indigo-600 dark:text-indigo-400 font-semibold hover:underline"
-            >
-              Add
-            </button>
-          </div>
-        ) : (
-          <button
-            onClick={() => setShowTagInput(true)}
-            className="text-[10px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 flex items-center gap-0.5 px-1 py-0.5 rounded hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
-          >
-            <Tag className="w-2.5 h-2.5" /> +tag
-          </button>
-        )}
-      </div>
-
-      {/* Card Body */}
-      <div
-        className="p-4 flex-1 flex flex-col"
-        onClick={(e) => e.stopPropagation()}
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        {/* TYPE 1: TODO LIST */}
-        {card.type === 'todo' && (
-          <div className="space-y-2.5">
-            {/* Glowing Gradient Progress Bar */}
-            {totalCount > 0 && (
-              <div className="mb-2">
-                <div className="flex justify-between items-center text-[10px] text-slate-500 dark:text-slate-400 mb-1 font-semibold">
-                  <span>{completedCount} of {totalCount} completed</span>
-                  <span className="tabular-nums">{progressPercent}%</span>
-                </div>
-                <div className="w-full h-1.5 bg-black/5 dark:bg-white/10 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-gradient-to-r from-indigo-500 to-emerald-400 rounded-full transition-all duration-300"
-                    style={{ width: `${progressPercent}%` }}
-                  />
-                </div>
-              </div>
-            )}
-
-            {/* Todo items */}
-            <div className="space-y-1 max-h-80 overflow-y-auto pr-1">
-              {(card.todos || []).map((todo) => (
-                <div
-                  key={todo.id}
-                  className="group/item flex items-center gap-2.5 text-xs rounded-lg px-2 py-1.5 hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
-                >
-                  {/* Custom Squircle Checkbox */}
-                  <button
-                    onClick={() => handleToggleTodo(todo.id)}
-                    className={`w-4 h-4 rounded-md border flex items-center justify-center transition-all ${
-                      todo.completed
-                        ? 'bg-emerald-500 border-emerald-500 text-white shadow-xs'
-                        : 'border-slate-300 dark:border-white/20 hover:border-emerald-500'
-                    }`}
-                  >
-                    {todo.completed && <Check className="w-3 h-3 stroke-[3]" />}
-                  </button>
-
-                  <input
-                    type="text"
-                    value={todo.text}
-                    onChange={(e) => {
-                      const updated = (card.todos || []).map((t) =>
-                        t.id === todo.id ? { ...t, text: e.target.value } : t
-                      );
-                      onUpdate({ todos: updated });
-                    }}
-                    className={`flex-1 bg-transparent outline-none text-xs leading-relaxed transition-all ${
-                      todo.completed
-                        ? 'line-through text-slate-400 dark:text-slate-500'
-                        : 'text-slate-800 dark:text-slate-100'
-                    }`}
-                  />
-
-                  {/* Priority Indicator Dot */}
-                  <button
-                    onClick={() => {
-                      const nextPrio = todo.priority === 'high' ? 'low' : todo.priority === 'low' ? 'medium' : 'high';
-                      const updated = (card.todos || []).map((t) =>
-                        t.id === todo.id ? { ...t, priority: nextPrio as any } : t
-                      );
-                      onUpdate({ todos: updated });
-                    }}
-                    className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-md transition-opacity ${
-                      todo.priority === 'high'
-                        ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400'
-                        : todo.priority === 'low'
-                        ? 'bg-slate-500/10 text-slate-500 dark:text-slate-400'
-                        : 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
-                    }`}
-                    title="Toggle priority"
-                  >
-                    {todo.priority || 'med'}
-                  </button>
-
-                  <button
-                    onClick={() => handleDeleteTodo(todo.id)}
-                    className="opacity-0 group-hover/item:opacity-100 text-slate-400 hover:text-rose-500 p-1 rounded-md transition-opacity"
-                  >
-                    <Trash2 className="w-3 h-3" />
-                  </button>
-                </div>
-              ))}
-            </div>
-
-            {/* Quick Add input */}
-            <form onSubmit={handleAddTodo} className="flex items-center gap-2 mt-3 pt-3 border-t border-black/5 dark:border-white/5">
-              <Plus className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-              <input
-                type="text"
-                value={newTodoText}
-                onChange={(e) => setNewTodoText(e.target.value)}
-                placeholder="Add task... (hit Enter)"
-                className="w-full text-xs bg-transparent outline-none text-slate-800 dark:text-slate-100 placeholder-slate-400"
+          {popover === 'color' && (
+            <MenuPanel className="right-0 top-full mt-1.5 min-w-0 w-auto">
+              <ColorSwatches
+                value={card.color}
+                onPick={(c) => {
+                  onUpdate({ color: c });
+                  setPopover(null);
+                }}
               />
-              <button
-                type="submit"
-                disabled={!newTodoText.trim()}
-                className="text-xs px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-30 shrink-0 font-semibold shadow-xs"
+            </MenuPanel>
+          )}
+
+          {popover === 'menu' && (
+            <MenuPanel className="right-0 top-full mt-1.5 w-56 max-h-80 overflow-y-auto">
+              <MenuItem
+                icon={<Copy className="w-4 h-4" />}
+                onClick={() => {
+                  onDuplicate();
+                  setPopover(null);
+                }}
+                hint={<span className="text-[11px] text-ink-400">Ctrl D</span>}
               >
-                Add
+                Duplicate
+              </MenuItem>
+              {clusters.length > 0 && (
+                <>
+                  <MenuDivider />
+                  <MenuLabel>Move to cluster</MenuLabel>
+                  <MenuItem
+                    active={!card.clusterId}
+                    icon={<span className="w-2.5 h-2.5 rounded-full ring-[1.5px] ring-ink-400" />}
+                    onClick={() => {
+                      onUpdate({ clusterId: null });
+                      setPopover(null);
+                    }}
+                  >
+                    No cluster
+                  </MenuItem>
+                  {clusters.map((cl) => (
+                    <MenuItem
+                      key={cl.id}
+                      active={card.clusterId === cl.id}
+                      icon={<span className={cn('w-2.5 h-2.5 rounded-full', colorTheme(cl.color).swatch)} />}
+                      onClick={() => {
+                        onUpdate({ clusterId: cl.id });
+                        setPopover(null);
+                      }}
+                    >
+                      {cl.title}
+                    </MenuItem>
+                  ))}
+                </>
+              )}
+              <MenuDivider />
+              <MenuItem
+                tone="danger"
+                icon={<Trash2 className="w-4 h-4" />}
+                onClick={() => {
+                  onDelete();
+                  setPopover(null);
+                }}
+                hint={<span className="text-[11px] opacity-60">Del</span>}
+              >
+                Delete card
+              </MenuItem>
+            </MenuPanel>
+          )}
+        </div>
+      </header>
+
+      {/* Tags */}
+      {(card.tags.length > 0 || tagDraft !== null) && (
+        <div {...stop} className="flex flex-wrap items-center gap-1 px-4 pt-1">
+          {card.tags.map((tag) => (
+            <span
+              key={tag}
+              className={cn(
+                'group/tag inline-flex items-center h-6 pl-2 pr-1 rounded-full text-[11.5px] font-semibold',
+                isSticky ? 'bg-black/[0.07] text-ink-800' : 'bg-ink-100 text-ink-600 dark:bg-ink-800 dark:text-ink-300',
+              )}
+            >
+              {tag}
+              <button
+                type="button"
+                aria-label={`Remove ${tag}`}
+                onClick={() => onUpdate({ tags: card.tags.filter((t) => t !== tag) })}
+                className="ml-0.5 w-4 h-4 rounded-full flex items-center justify-center opacity-40 group-hover/tag:opacity-100 hover:bg-black/10 dark:hover:bg-white/15"
+              >
+                <X className="w-2.5 h-2.5" />
               </button>
+            </span>
+          ))}
+          {tagDraft !== null && (
+            <input
+              autoFocus
+              value={tagDraft}
+              onChange={(e) => setTagDraft(e.target.value)}
+              onBlur={commitTag}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') commitTag();
+                if (e.key === 'Escape') setTagDraft(null);
+              }}
+              placeholder="#tag"
+              aria-label="New tag"
+              className="h-6 w-24 px-2 rounded-full text-[11.5px] font-semibold bg-transparent ring-1 ring-brand-500 outline-none text-ink-800 dark:text-ink-100"
+            />
+          )}
+        </div>
+      )}
+
+      {/* Body */}
+      <div {...stop} className="px-4 pt-2 pb-3.5 flex-1 flex flex-col">
+        {card.type === 'todo' && (
+          <div>
+            {todos.length > 0 && (
+              <div className="pb-2">
+                <Progress done={done} total={todos.length} />
+              </div>
+            )}
+            <ul className="max-h-80 overflow-y-auto -mx-2">
+              {todos.map((todo) => (
+                <li key={todo.id} className="group/item flex items-start gap-2.5 rounded-lg px-2 min-h-9 [&>button]:mt-[7px] [&>button:not([role=checkbox])]:mt-1 hover:bg-ink-900/[0.035] dark:hover:bg-white/[0.04]">
+                  <Checkbox checked={todo.completed} onToggle={() => onUpdate({ todos: toggleTodo(card, todo.id) })} />
+                  <textarea
+                    rows={1}
+                    value={todo.text}
+                    aria-label="Task"
+                    onChange={(e) =>
+                      onUpdate({ todos: todos.map((t) => (t.id === todo.id ? { ...t, text: e.target.value } : t)) })
+                    }
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        (e.target as HTMLTextAreaElement).blur();
+                      }
+                      if (e.key === 'Backspace' && !todo.text) onUpdate({ todos: todos.filter((t) => t.id !== todo.id) });
+                    }}
+                    className={cn(
+                      'min-w-0 flex-1 resize-none [field-sizing:content] leading-snug bg-transparent outline-none text-[14px] py-1.5 transition-colors',
+                      todo.completed ? 'line-through decoration-ink-300 text-ink-400 dark:text-ink-500' : 'text-ink-800 dark:text-ink-100',
+                    )}
+                  />
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onUpdate({ todos: todos.map((t) => (t.id === todo.id ? { ...t, priority: nextPriority(t.priority) } : t)) })
+                    }
+                    aria-label={`Priority: ${todo.priority ?? 'medium'}. Click to change.`}
+                    title={`Priority: ${todo.priority ?? 'medium'}`}
+                    className={cn(
+                      'w-6 h-6 shrink-0 rounded-md flex items-center justify-center transition-opacity',
+                      todo.priority === 'high'
+                        ? 'text-rose-500'
+                        : todo.priority === 'low'
+                          ? 'text-ink-300 opacity-0 group-hover/item:opacity-100'
+                          : 'text-ink-300 opacity-0 group-hover/item:opacity-100 hover:text-ink-500',
+                    )}
+                  >
+                    <Flag className={cn('w-3.5 h-3.5', todo.priority === 'high' && 'fill-current')} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onUpdate({ todos: todos.filter((t) => t.id !== todo.id) })}
+                    aria-label="Delete task"
+                    className="w-6 h-6 shrink-0 rounded-md flex items-center justify-center text-ink-300 hover:text-rose-500 opacity-0 group-hover/item:opacity-100 transition-opacity"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (!newTodo.trim()) return;
+                onUpdate(addTodo(card, newTodo));
+                setNewTodo('');
+              }}
+              className="mt-1 -mx-2 flex items-center gap-2.5 rounded-lg px-2 min-h-9 focus-within:bg-ink-900/[0.035] dark:focus-within:bg-white/[0.04]"
+            >
+              <Plus className="w-[18px] h-[18px] shrink-0 text-ink-300 dark:text-ink-600" />
+              <input
+                value={newTodo}
+                onChange={(e) => setNewTodo(e.target.value)}
+                placeholder="Add a task"
+                aria-label="Add a task"
+                className="min-w-0 flex-1 bg-transparent outline-none text-[14px] py-1.5 text-ink-800 dark:text-ink-100 placeholder:text-ink-400"
+              />
+              {newTodo.trim() && (
+                <button type="submit" aria-label="Add task" className="w-6 h-6 rounded-md flex items-center justify-center bg-brand-600 text-white animate-pop-in">
+                  <CornerDownLeft className="w-3.5 h-3.5" />
+                </button>
+              )}
             </form>
           </div>
         )}
 
-        {/* TYPE 2: FREEFORM SCRATCHPAD NOTE */}
         {card.type === 'note' && (
-          <div className="flex flex-col flex-1">
-            <textarea
-              value={card.noteContent || ''}
-              onChange={(e) => onUpdate({ noteContent: e.target.value })}
-              placeholder="Start unstructured thoughts here...&#10;• Bullets supported&#10;• Quick memos&#10;• Multi-line brain dumps"
-              rows={6}
-              className="w-full h-full min-h-[120px] bg-transparent outline-none resize-y text-xs leading-relaxed text-slate-800 dark:text-slate-100 placeholder-slate-400 font-sans"
-            />
-          </div>
+          <textarea
+            value={card.noteContent || ''}
+            onChange={(e) => onUpdate({ noteContent: e.target.value })}
+            placeholder="Write anything…"
+            aria-label="Note"
+            rows={6}
+            className="w-full min-h-[132px] bg-transparent outline-none resize-y text-[14px] leading-relaxed text-ink-800 dark:text-ink-100 placeholder:text-ink-400"
+          />
         )}
 
-        {/* TYPE 3: STICKY NOTE */}
-        {card.type === 'sticky' && (
-          <div className="flex flex-col flex-1">
-            <textarea
-              value={card.noteContent || ''}
-              onChange={(e) => onUpdate({ noteContent: e.target.value })}
-              placeholder="Important reminder, idea, or quote..."
-              rows={5}
-              className="w-full h-full min-h-[110px] bg-transparent outline-none resize-none text-xs leading-relaxed text-slate-800 dark:text-slate-200 placeholder-slate-400 font-sans italic"
-            />
-          </div>
+        {isSticky && (
+          <textarea
+            value={card.noteContent || ''}
+            onChange={(e) => onUpdate({ noteContent: e.target.value })}
+            placeholder="A thought worth keeping…"
+            aria-label="Sticky note"
+            rows={4}
+            className="w-full min-h-[112px] bg-transparent outline-none resize-none font-display text-[19px] font-semibold leading-snug tracking-tight text-ink-950 dark:text-white placeholder:text-ink-950/35 dark:placeholder:text-white/35"
+          />
         )}
 
-        {/* TYPE 4: TACTILE MECHANICAL COUNTER */}
         {card.type === 'counter' && (
-          <div className="flex flex-col items-center justify-center py-4 select-none">
+          <div className="flex flex-col items-center pt-1 pb-2 select-none">
             <input
-              type="text"
-              value={card.counterLabel || 'Items'}
+              value={card.counterLabel ?? ''}
               onChange={(e) => onUpdate({ counterLabel: e.target.value })}
-              className="text-center font-bold text-xs text-slate-400 uppercase tracking-widest bg-transparent outline-none mb-3"
+              placeholder="What are you counting?"
+              aria-label="Counter label"
+              className="w-full text-center bg-transparent outline-none text-[13px] font-semibold text-ink-500 dark:text-ink-400 placeholder:text-ink-300"
             />
-            <div className="flex items-center gap-5">
+            <div className="mt-2 flex items-center gap-6">
               <button
+                type="button"
+                aria-label="Decrease"
                 onClick={() => onUpdate({ counterValue: Math.max(0, (card.counterValue || 0) - 1) })}
-                className="w-10 h-10 rounded-2xl bg-black/5 dark:bg-white/10 hover:bg-black/10 dark:hover:bg-white/20 active:scale-95 flex items-center justify-center text-slate-700 dark:text-slate-200 transition-all font-bold shadow-xs"
+                className="w-11 h-11 rounded-full flex items-center justify-center bg-ink-100 text-ink-700 hover:bg-ink-200 dark:bg-ink-800 dark:text-ink-200 dark:hover:bg-ink-700 active:scale-90 transition-all"
               >
-                <Minus className="w-4 h-4" />
+                <Minus className="w-5 h-5" />
               </button>
-              <div className="text-4xl font-black text-slate-800 dark:text-slate-100 tabular-nums tracking-tight">
+              <output className="min-w-[2ch] text-center font-display text-6xl font-extrabold tracking-tight tabular-nums text-ink-950 dark:text-white">
                 {card.counterValue || 0}
-              </div>
+              </output>
               <button
+                type="button"
+                aria-label="Increase"
                 onClick={() => onUpdate({ counterValue: (card.counterValue || 0) + 1 })}
-                className="w-10 h-10 rounded-2xl bg-indigo-600 hover:bg-indigo-700 active:scale-95 flex items-center justify-center text-white transition-all font-bold shadow-md shadow-indigo-500/20"
+                className="w-11 h-11 rounded-full flex items-center justify-center bg-brand-600 text-white hover:bg-brand-700 active:scale-90 transition-all shadow-[0_10px_20px_-10px] shadow-brand-600"
               >
-                <Plus className="w-4 h-4" />
+                <Plus className="w-5 h-5" />
               </button>
             </div>
           </div>
         )}
 
-        {/* TYPE 5: BOOKMARKS & LINKS */}
         {card.type === 'links' && (
-          <div className="space-y-2">
-            <div className="space-y-1.5 max-h-60 overflow-y-auto">
-              {(card.bookmarks || []).map((bm) => (
-                <div
-                  key={bm.id}
-                  className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 group/link transition-colors"
+          <div className="space-y-1">
+            {(card.bookmarks ?? []).map((bm) => (
+              <div key={bm.id} className="group/link -mx-2 flex items-center gap-2.5 rounded-lg px-2 min-h-10 hover:bg-ink-900/[0.035] dark:hover:bg-white/[0.04]">
+                <span className="w-7 h-7 shrink-0 rounded-lg flex items-center justify-center bg-violet-500/10 text-violet-600 dark:text-violet-300">
+                  <Link2 className="w-3.5 h-3.5" />
+                </span>
+                <a
+                  href={safeHref(bm.url)}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  className="min-w-0 flex-1 truncate text-[14px] font-semibold text-ink-800 dark:text-ink-100 hover:text-brand-600 dark:hover:text-brand-300"
                 >
-                  <a
-                    href={safeHref(bm.url)}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="flex items-center gap-2 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline truncate"
-                  >
-                    <ExternalLink className="w-3.5 h-3.5 shrink-0" />
-                    <span className="truncate">{bm.title}</span>
-                  </a>
-                  <button
-                    onClick={() => {
-                      onUpdate({
-                        bookmarks: (card.bookmarks || []).filter((b) => b.id !== bm.id),
-                      });
-                    }}
-                    className="opacity-0 group-hover/link:opacity-100 text-slate-400 hover:text-rose-500 p-1 rounded-md transition-opacity"
-                  >
-                    <Trash2 className="w-3 h-3" />
-                  </button>
-                </div>
-              ))}
-            </div>
+                  {bm.title}
+                </a>
+                <button
+                  type="button"
+                  aria-label={`Remove ${bm.title}`}
+                  onClick={() => onUpdate({ bookmarks: (card.bookmarks ?? []).filter((b) => b.id !== bm.id) })}
+                  className="w-6 h-6 rounded-md flex items-center justify-center text-ink-300 hover:text-rose-500 opacity-0 group-hover/link:opacity-100 transition-opacity"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ))}
 
-            {showAddBookmark ? (
-              <form onSubmit={handleAddBookmark} className="space-y-2 pt-3 border-t border-black/5 dark:border-white/5">
+            {linkDraft ? (
+              <form onSubmit={commitLink} className="pt-1 space-y-2 animate-pop-in">
                 <input
-                  type="text"
-                  placeholder="Link Title (e.g. Wi-Fi Portal)"
-                  value={newBookmarkTitle}
-                  onChange={(e) => setNewBookmarkTitle(e.target.value)}
-                  className="w-full text-xs px-3 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 outline-none text-slate-800 dark:text-slate-100"
+                  autoFocus
+                  value={linkDraft.url}
+                  onChange={(e) => {
+                    setLinkDraft({ ...linkDraft, url: e.target.value });
+                    setLinkError(false);
+                  }}
+                  placeholder="Paste a link, email or phone"
+                  aria-label="Link address"
+                  aria-invalid={linkError}
+                  className={cn(
+                    'w-full h-10 px-3 rounded-lg text-[14px] bg-ink-50 dark:bg-ink-950 outline-none ring-1 ring-inset text-ink-900 dark:text-white placeholder:text-ink-400 focus:ring-2',
+                    linkError ? 'ring-rose-400 focus:ring-rose-500' : 'ring-ink-200 dark:ring-ink-700 focus:ring-brand-500',
+                  )}
                 />
                 <input
-                  type="text"
-                  placeholder="URL or phone (https://... or tel:...)"
-                  value={newBookmarkUrl}
-                  onChange={(e) => setNewBookmarkUrl(e.target.value)}
-                  className="w-full text-xs px-3 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 outline-none text-slate-800 dark:text-slate-100"
+                  value={linkDraft.title}
+                  onChange={(e) => setLinkDraft({ ...linkDraft, title: e.target.value })}
+                  placeholder="Name (optional)"
+                  aria-label="Link name"
+                  className="w-full h-10 px-3 rounded-lg text-[14px] bg-ink-50 dark:bg-ink-950 outline-none ring-1 ring-inset ring-ink-200 dark:ring-ink-700 focus:ring-2 focus:ring-brand-500 text-ink-900 dark:text-white placeholder:text-ink-400"
                 />
+                {linkError && <p className="text-[12px] font-medium text-rose-600 dark:text-rose-400">That doesn’t look like a link. Try https://…</p>}
                 <div className="flex justify-end gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => setShowAddBookmark(false)}
-                    className="text-xs px-3 py-1.5 text-slate-400 hover:text-slate-600"
-                  >
+                  <button type="button" onClick={() => setLinkDraft(null)} className="h-8 px-3 rounded-lg text-[13px] font-semibold text-ink-500 hover:bg-ink-100 dark:hover:bg-ink-800">
                     Cancel
                   </button>
-                  <button
-                    type="submit"
-                    className="text-xs px-3 py-1.5 bg-indigo-600 text-white rounded-lg font-semibold shadow-xs"
-                  >
-                    Save Link
+                  <button type="submit" className="h-8 px-3 rounded-lg text-[13px] font-semibold bg-brand-600 text-white hover:bg-brand-700">
+                    Save link
                   </button>
                 </div>
               </form>
             ) : (
               <button
-                onClick={() => setShowAddBookmark(true)}
-                className="w-full flex items-center justify-center gap-1.5 py-2 text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 border border-dashed border-slate-300 dark:border-white/15 rounded-xl hover:border-slate-400 transition-colors"
+                type="button"
+                onClick={() => setLinkDraft({ title: '', url: '' })}
+                className="-mx-2 w-[calc(100%+1rem)] flex items-center gap-2.5 rounded-lg px-2 min-h-9 text-[14px] text-ink-400 hover:text-ink-700 hover:bg-ink-900/[0.035] dark:hover:text-ink-200 dark:hover:bg-white/[0.04]"
               >
-                <Plus className="w-3.5 h-3.5" /> Add Link
+                <Plus className="w-[18px] h-[18px]" /> Add a link
               </button>
             )}
           </div>
         )}
       </div>
-    </div>
+    </article>
   );
 };

@@ -1,433 +1,392 @@
-import React, { useState } from 'react';
-import {
-  CheckSquare,
-  Square,
-  Plus,
-  Trash2,
-  Layers,
-  ExternalLink,
-  ChevronDown,
-  ChevronUp
-} from 'lucide-react';
-import confetti from 'canvas-confetti';
-import type { BoardDocument, CardData, CardType, TodoItem } from '../types';
-import { COLOR_MAP } from '../utils/storage';
+import React, { useCallback, useState } from 'react';
+import { Plus, Trash2, ChevronDown, Link2, Minus, MoreHorizontal, Flag, CornerDownLeft } from 'lucide-react';
+import type { BoardDocument, CardData, CardType, Cluster } from '../types';
+import { colorTheme } from '../theme/colors';
 import { safeHref } from '../utils/validate';
+import { Checkbox, Progress, addTodo, nextPriority, toggleTodo } from './CardView';
+import { IconButton, MenuItem, MenuPanel, useDismiss } from './ui';
+import { cn } from '../utils/cn';
 
 interface MobileFeedViewProps {
   document: BoardDocument;
   activeTagFilter: string | null;
   onUpdateCard: (id: string, updated: Partial<CardData>) => void;
   onDeleteCard: (id: string) => void;
-  onUpdateCluster: (id: string, updated: any) => void;
+  onUpdateCluster: (id: string, updated: Partial<Cluster>) => void;
   onDeleteCluster: (id: string) => void;
   onOpenQuickAdd: (type: CardType, clusterId?: string) => void;
 }
+
+const LOOSE = '__loose__';
+
+/* --------------------------------------------------------------------------
+ * One card in the list
+ * ----------------------------------------------------------------------- */
+
+const ListCard: React.FC<{
+  card: CardData;
+  onUpdate: (u: Partial<CardData>) => void;
+  onDelete: () => void;
+}> = ({ card, onUpdate, onDelete }) => {
+  const [draft, setDraft] = useState('');
+  const [menu, setMenu] = useState(false);
+  const closeMenu = useCallback(() => setMenu(false), []);
+  const menuRef = useDismiss(menu, closeMenu);
+  const theme = colorTheme(card.color);
+  const isSticky = card.type === 'sticky';
+  const todos = card.todos ?? [];
+
+  return (
+    <article
+      className={cn(
+        'rounded-2xl p-4 pt-3',
+        isSticky ? theme.soft : 'bg-white dark:bg-ink-900 ring-1 ring-ink-900/[0.06] dark:ring-white/[0.07] card-shadow dark:card-shadow-dark',
+      )}
+    >
+      <header className="flex items-center gap-2.5">
+        {!isSticky && <span className={cn('w-2.5 h-2.5 shrink-0 rounded-full', theme.swatch)} aria-hidden="true" />}
+        <input
+          value={card.title}
+          onChange={(e) => onUpdate({ title: e.target.value })}
+          aria-label="Card title"
+          placeholder="Untitled"
+          className={cn(
+            'min-w-0 flex-1 bg-transparent outline-none font-display font-bold tracking-tight text-ink-950 dark:text-white placeholder:text-ink-400',
+            isSticky ? 'text-[13px] opacity-70' : 'text-[16px]',
+          )}
+        />
+        <div ref={menuRef} className="relative -mr-2">
+          <IconButton label="Card options" onClick={() => setMenu((m) => !m)}>
+            <MoreHorizontal className="w-[18px] h-[18px]" />
+          </IconButton>
+          {menu && (
+            <MenuPanel className="right-0 top-full mt-1 w-44">
+              <MenuItem tone="danger" icon={<Trash2 className="w-4 h-4" />} onClick={onDelete}>
+                Delete card
+              </MenuItem>
+            </MenuPanel>
+          )}
+        </div>
+      </header>
+
+      {card.tags.length > 0 && (
+        <div className="mt-1 flex flex-wrap gap-1">
+          {card.tags.map((t) => (
+            <span
+              key={t}
+              className={cn(
+                'inline-flex items-center h-6 px-2 rounded-full text-[12px] font-semibold',
+                isSticky ? 'bg-black/[0.07] text-ink-800' : 'bg-ink-100 text-ink-600 dark:bg-ink-800 dark:text-ink-300',
+              )}
+            >
+              {t}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {card.type === 'todo' && (
+        <div className="mt-3">
+          {todos.length > 0 && <Progress done={todos.filter((t) => t.completed).length} total={todos.length} />}
+          <ul className="mt-1.5 -mx-1">
+            {todos.map((todo) => (
+              <li key={todo.id} className="flex items-start gap-3 min-h-11 px-1 [&>button[role=checkbox]]:mt-[10px] [&>button:not([role=checkbox])]:mt-0.5">
+                <Checkbox size="lg" checked={todo.completed} onToggle={() => onUpdate({ todos: toggleTodo(card, todo.id) })} />
+                <textarea
+                  rows={1}
+                  value={todo.text}
+                  aria-label="Task"
+                  onChange={(e) => onUpdate({ todos: todos.map((t) => (t.id === todo.id ? { ...t, text: e.target.value } : t)) })}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      (e.target as HTMLTextAreaElement).blur();
+                    }
+                    if (e.key === 'Backspace' && !todo.text) onUpdate({ todos: todos.filter((t) => t.id !== todo.id) });
+                  }}
+                  className={cn(
+                    'min-w-0 flex-1 resize-none [field-sizing:content] leading-snug bg-transparent outline-none text-[15px] py-2.5',
+                    todo.completed ? 'line-through decoration-ink-300 text-ink-400 dark:text-ink-500' : 'text-ink-800 dark:text-ink-100',
+                  )}
+                />
+                <button
+                  type="button"
+                  aria-label={`Priority: ${todo.priority ?? 'medium'}. Tap to change.`}
+                  onClick={() => onUpdate({ todos: todos.map((t) => (t.id === todo.id ? { ...t, priority: nextPriority(t.priority) } : t)) })}
+                  className={cn(
+                    'w-9 h-9 shrink-0 rounded-lg flex items-center justify-center',
+                    todo.priority === 'high' ? 'text-rose-500' : 'text-ink-300 dark:text-ink-600',
+                  )}
+                >
+                  <Flag className={cn('w-4 h-4', todo.priority === 'high' && 'fill-current')} />
+                </button>
+              </li>
+            ))}
+          </ul>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!draft.trim()) return;
+              onUpdate(addTodo(card, draft));
+              setDraft('');
+            }}
+            className="mt-1 flex items-center gap-3 min-h-11 rounded-xl px-1 -mx-1"
+          >
+            <span className="w-6 h-6 shrink-0 flex items-center justify-center text-ink-300 dark:text-ink-600">
+              <Plus className="w-5 h-5" />
+            </span>
+            <input
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              placeholder="Add a task"
+              aria-label="Add a task"
+              enterKeyHint="done"
+              className="min-w-0 flex-1 bg-transparent outline-none text-[15px] py-2 text-ink-800 dark:text-ink-100 placeholder:text-ink-400"
+            />
+            {draft.trim() && (
+              <button type="submit" aria-label="Add task" className="w-9 h-9 rounded-xl flex items-center justify-center bg-brand-600 text-white animate-pop-in">
+                <CornerDownLeft className="w-4 h-4" />
+              </button>
+            )}
+          </form>
+        </div>
+      )}
+
+      {card.type === 'note' && (
+        <textarea
+          value={card.noteContent || ''}
+          onChange={(e) => onUpdate({ noteContent: e.target.value })}
+          placeholder="Write anything…"
+          aria-label="Note"
+          rows={4}
+          className="mt-2 w-full bg-transparent outline-none resize-none text-[15px] leading-relaxed text-ink-800 dark:text-ink-100 placeholder:text-ink-400"
+        />
+      )}
+
+      {isSticky && (
+        <textarea
+          value={card.noteContent || ''}
+          onChange={(e) => onUpdate({ noteContent: e.target.value })}
+          placeholder="A thought worth keeping…"
+          aria-label="Sticky note"
+          rows={3}
+          className="mt-1 w-full bg-transparent outline-none resize-none font-display text-[19px] font-semibold leading-snug tracking-tight text-ink-950 dark:text-white placeholder:text-ink-950/35"
+        />
+      )}
+
+      {card.type === 'counter' && (
+        <div className="mt-2 flex items-center justify-between gap-4">
+          <input
+            value={card.counterLabel ?? ''}
+            onChange={(e) => onUpdate({ counterLabel: e.target.value })}
+            placeholder="What are you counting?"
+            aria-label="Counter label"
+            className="min-w-0 flex-1 bg-transparent outline-none text-[14px] font-semibold text-ink-500 dark:text-ink-400 placeholder:text-ink-300"
+          />
+          <div className="flex items-center gap-4">
+            <button
+              type="button"
+              aria-label="Decrease"
+              onClick={() => onUpdate({ counterValue: Math.max(0, (card.counterValue || 0) - 1) })}
+              className="w-11 h-11 rounded-full flex items-center justify-center bg-ink-100 text-ink-700 dark:bg-ink-800 dark:text-ink-200 active:scale-90 transition-transform"
+            >
+              <Minus className="w-5 h-5" />
+            </button>
+            <output className="min-w-[2ch] text-center font-display text-4xl font-extrabold tabular-nums text-ink-950 dark:text-white">
+              {card.counterValue || 0}
+            </output>
+            <button
+              type="button"
+              aria-label="Increase"
+              onClick={() => onUpdate({ counterValue: (card.counterValue || 0) + 1 })}
+              className="w-11 h-11 rounded-full flex items-center justify-center bg-brand-600 text-white active:scale-90 transition-transform"
+            >
+              <Plus className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {card.type === 'links' && (
+        <div className="mt-2 space-y-1">
+          {(card.bookmarks ?? []).length === 0 && <p className="text-[14px] text-ink-400">No links yet. Add them from the canvas.</p>}
+          {(card.bookmarks ?? []).map((bm) => (
+            <a
+              key={bm.id}
+              href={safeHref(bm.url)}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="flex items-center gap-3 min-h-11 -mx-1 px-1 rounded-xl text-[15px] font-semibold text-ink-800 dark:text-ink-100 active:bg-ink-100 dark:active:bg-ink-800"
+            >
+              <span className="w-8 h-8 shrink-0 rounded-lg flex items-center justify-center bg-violet-500/10 text-violet-600 dark:text-violet-300">
+                <Link2 className="w-4 h-4" />
+              </span>
+              <span className="truncate">{bm.title}</span>
+            </a>
+          ))}
+        </div>
+      )}
+    </article>
+  );
+};
+
+/* --------------------------------------------------------------------------
+ * List view
+ * ----------------------------------------------------------------------- */
 
 export const MobileFeedView: React.FC<MobileFeedViewProps> = ({
   document,
   activeTagFilter,
   onUpdateCard,
   onDeleteCard,
+  onUpdateCluster,
   onDeleteCluster,
   onOpenQuickAdd,
 }) => {
-  const [selectedClusterFilter, setSelectedClusterFilter] = useState<string | null>(null);
-  const [newTodoInput, setNewTodoInput] = useState<{ [cardId: string]: string }>({});
-  const [collapsedClusters, setCollapsedClusters] = useState<{ [id: string]: boolean }>({});
+  const [filter, setFilter] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
-  const toggleClusterCollapse = (id: string) => {
-    setCollapsedClusters(prev => ({ ...prev, [id]: !prev[id] }));
-  };
+  const visible = document.cards.filter((c) => !activeTagFilter || c.tags.includes(activeTagFilter));
+  const byCluster = new Map<string, CardData[]>();
+  for (const c of visible) {
+    const key = c.clusterId && document.clusters.some((cl) => cl.id === c.clusterId) ? c.clusterId : LOOSE;
+    byCluster.set(key, [...(byCluster.get(key) ?? []), c]);
+  }
+  const loose = byCluster.get(LOOSE) ?? [];
 
-  const handleToggleTodo = (card: CardData, todoId: string) => {
-    if (!card.todos) return;
-    const updated = card.todos.map((t) => (t.id === todoId ? { ...t, completed: !t.completed } : t));
-    onUpdateCard(card.id, { todos: updated });
+  const groups: { id: string; cluster: Cluster | null }[] = [
+    ...document.clusters.map((cl) => ({ id: cl.id, cluster: cl })),
+    ...(loose.length ? [{ id: LOOSE, cluster: null }] : []),
+  ].filter((g) => !filter || g.id === filter);
 
-    if (updated.length > 0 && updated.every(t => t.completed)) {
-      confetti({ particleCount: 40, spread: 50, origin: { y: 0.7 } });
-    }
-  };
-
-  const handleAddTodoToCard = (card: CardData) => {
-    const text = (newTodoInput[card.id] || '').trim();
-    if (!text) return;
-
-    const newTodo: TodoItem = {
-      id: `todo-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
-      text,
-      completed: false,
-      priority: 'medium',
-    };
-
-    onUpdateCard(card.id, {
-      todos: [...(card.todos || []), newTodo],
-    });
-
-    setNewTodoInput(prev => ({ ...prev, [card.id]: '' }));
-  };
-
-  // Filter cards by active tag if any
-  const filteredCards = document.cards.filter((c) => {
-    if (activeTagFilter && !c.tags.includes(activeTagFilter)) return false;
-    return true;
-  });
-
-  const clusterCardsMap = new Map<string, CardData[]>();
-  const floatingCards: CardData[] = [];
-
-  filteredCards.forEach((c) => {
-    if (c.clusterId) {
-      if (!clusterCardsMap.has(c.clusterId)) {
-        clusterCardsMap.set(c.clusterId, []);
-      }
-      clusterCardsMap.get(c.clusterId)!.push(c);
-    } else {
-      floatingCards.push(c);
-    }
-  });
-
-  // Clusters to display based on cluster filter pill
-  const clustersToDisplay = selectedClusterFilter
-    ? document.clusters.filter((cl) => cl.id === selectedClusterFilter)
-    : document.clusters;
-
-  const showFloating = !selectedClusterFilter || selectedClusterFilter === 'floating';
-
-  return (
-    <div className="w-full h-full overflow-y-auto px-4 sm:px-6 py-5 pb-28 space-y-5 max-w-2xl mx-auto">
-      {/* Cluster Navigation Pills */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none select-none">
-        <button
-          onClick={() => setSelectedClusterFilter(null)}
-          className={`px-3 py-1.5 rounded-full text-xs font-semibold shrink-0 transition-colors ${
-            selectedClusterFilter === null
-              ? 'bg-indigo-600 text-white shadow-xs'
-              : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
-          }`}
-        >
-          All Clusters ({document.cards.length})
-        </button>
-        {document.clusters.map((cl) => {
-          const count = (clusterCardsMap.get(cl.id) || []).length;
-          const isSelected = selectedClusterFilter === cl.id;
-          return (
-            <button
-              key={cl.id}
-              onClick={() => setSelectedClusterFilter(cl.id)}
-              className={`px-3 py-1.5 rounded-full text-xs font-semibold shrink-0 transition-colors flex items-center gap-1.5 ${
-                isSelected
-                  ? 'bg-indigo-600 text-white shadow-xs'
-                  : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
-              }`}
-            >
-              <span>{cl.title}</span>
-              <span className="text-[10px] opacity-75">({count})</span>
-            </button>
-          );
-        })}
-        {floatingCards.length > 0 && (
-          <button
-            onClick={() => setSelectedClusterFilter('floating')}
-            className={`px-3 py-1.5 rounded-full text-xs font-semibold shrink-0 transition-colors ${
-              selectedClusterFilter === 'floating'
-                ? 'bg-indigo-600 text-white shadow-xs'
-                : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
-            }`}
-          >
-            Loose / Floating ({floatingCards.length})
-          </button>
-        )}
-      </div>
-
-      {/* Render Clusters */}
-      {clustersToDisplay.map((cluster) => {
-        const cards = clusterCardsMap.get(cluster.id) || [];
-        const isCollapsed = collapsedClusters[cluster.id];
-        const colorTheme = COLOR_MAP[cluster.color] || COLOR_MAP.default;
-
-        let totalTodos = 0;
-        let doneTodos = 0;
-        cards.forEach((c) => {
-          if (c.todos) {
-            totalTodos += c.todos.length;
-            doneTodos += c.todos.filter((t) => t.completed).length;
-          }
-        });
-
-        return (
-          <section
-            key={cluster.id}
-            className={`rounded-2xl border ${colorTheme.border} ${colorTheme.bg} overflow-hidden shadow-xs transition-all`}
-          >
-            {/* Cluster Header */}
-            <div
-              onClick={() => toggleClusterCollapse(cluster.id)}
-              className={`px-4 py-3 flex items-center justify-between cursor-pointer border-b ${colorTheme.border} ${colorTheme.header}`}
-            >
-              <div className="flex items-center gap-2 min-w-0">
-                <Layers className="w-4 h-4 text-indigo-500 shrink-0" />
-                <h3 className="font-bold text-sm text-slate-800 dark:text-slate-100 truncate">
-                  {cluster.title}
-                </h3>
-              </div>
-
-              <div className="flex items-center gap-2 shrink-0">
-                {totalTodos > 0 && (
-                  <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-black/5 dark:bg-white/10 text-slate-700 dark:text-slate-300">
-                    {doneTodos}/{totalTodos} done
-                  </span>
-                )}
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onOpenQuickAdd('todo', cluster.id);
-                  }}
-                  className="p-1.5 rounded-md bg-indigo-600 text-white hover:bg-indigo-700"
-                  title="Add card"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDeleteCluster(cluster.id);
-                  }}
-                  className="p-1.5 rounded-md text-slate-400 hover:text-rose-500"
-                  title="Delete cluster"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-                {isCollapsed ? <ChevronDown className="w-4 h-4 text-slate-400" /> : <ChevronUp className="w-4 h-4 text-slate-400" />}
-              </div>
-            </div>
-
-            {/* Cluster Cards Body */}
-            {!isCollapsed && (
-              <div className="p-4 space-y-3">
-                {cards.length === 0 ? (
-                  <div className="text-center py-6 text-slate-400 text-xs">
-                    No cards in this cluster yet.{' '}
-                    <button
-                      onClick={() => onOpenQuickAdd('todo', cluster.id)}
-                      className="text-indigo-600 dark:text-indigo-400 font-semibold underline ml-1"
-                    >
-                      + Add Todo List
-                    </button>
-                  </div>
-                ) : (
-                  cards.map((card) => renderMobileCard(card))
-                )}
-              </div>
-            )}
-          </section>
-        );
-      })}
-
-      {/* Floating Cards (outside any cluster) */}
-      {showFloating && floatingCards.length > 0 && (
-        <section className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden shadow-xs">
-          <div className="px-4 py-3 flex items-center justify-between border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900">
-            <h3 className="font-bold text-sm text-slate-800 dark:text-slate-100">
-              📌 Loose Notes & Tasks
-            </h3>
-            <button
-              onClick={() => onOpenQuickAdd('todo')}
-              className="p-1.5 rounded-md bg-indigo-600 text-white"
-            >
-              <Plus className="w-3.5 h-3.5" />
-            </button>
-          </div>
-          <div className="p-4 space-y-3">
-            {floatingCards.map((card) => renderMobileCard(card))}
-          </div>
-        </section>
+  const chip = (id: string | null, label: string, count: number, swatch?: string) => (
+    <button
+      key={id ?? 'all'}
+      type="button"
+      onClick={() => setFilter(id)}
+      aria-pressed={filter === id}
+      className={cn(
+        'shrink-0 inline-flex items-center gap-2 h-9 px-3.5 rounded-full text-[13px] font-semibold transition-colors',
+        filter === id
+          ? 'bg-ink-950 text-white dark:bg-white dark:text-ink-950'
+          : 'bg-white text-ink-700 ring-1 ring-inset ring-ink-200 dark:bg-ink-900 dark:text-ink-200 dark:ring-ink-700',
       )}
-    </div>
+    >
+      {swatch && <span className={cn('w-2 h-2 rounded-full', swatch)} />}
+      <span className="max-w-40 truncate">{label}</span>
+      <span className="tabular-nums opacity-55">{count}</span>
+    </button>
   );
 
-  function renderMobileCard(card: CardData) {
-    const colorTheme = COLOR_MAP[card.color] || COLOR_MAP.default;
-    const completedCount = card.todos ? card.todos.filter((t) => t.completed).length : 0;
-    const totalCount = card.todos ? card.todos.length : 0;
-    const progressPercent = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+  return (
+    <div className="w-full h-full overflow-y-auto">
+      <div className="max-w-2xl mx-auto px-4 sm:px-6 pt-4 pb-32 md:pb-12">
+        {/* Cluster filter */}
+        <nav aria-label="Filter by cluster" className="-mx-4 px-4 flex gap-2 overflow-x-auto scrollbar-none pb-1">
+          {chip(null, 'Everything', visible.length)}
+          {document.clusters.map((cl) => chip(cl.id, cl.title || 'Untitled', byCluster.get(cl.id)?.length ?? 0, colorTheme(cl.color).swatch))}
+          {loose.length > 0 && chip(LOOSE, 'Not in a cluster', loose.length, 'bg-ink-300')}
+        </nav>
 
-    return (
-      <div
-        key={card.id}
-        className={`rounded-xl border ${colorTheme.border} ${colorTheme.bg} p-4 shadow-xs space-y-3`}
-      >
-        {/* Card Header */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1.5 flex-1 min-w-0 mr-2">
-            <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-black/5 dark:bg-white/10 text-slate-600 dark:text-slate-300 shrink-0">
-              {card.type}
-            </span>
-            <input
-              type="text"
-              value={card.title}
-              onChange={(e) => onUpdateCard(card.id, { title: e.target.value })}
-              className="font-bold text-sm text-slate-800 dark:text-slate-100 bg-transparent outline-none truncate w-full"
-            />
-          </div>
-          <button
-            onClick={() => onDeleteCard(card.id)}
-            className="p-1.5 rounded-md text-slate-400 hover:text-rose-500"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-          </button>
-        </div>
-
-        {/* Card Tags */}
-        {card.tags && card.tags.length > 0 && (
-          <div className="flex flex-wrap gap-1">
-            {card.tags.map((t) => (
-              <span
-                key={t}
-                className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-black/5 dark:bg-white/10 text-slate-600 dark:text-slate-300"
-              >
-                {t}
-              </span>
-            ))}
-          </div>
-        )}
-
-        {/* Card Body by Type */}
-        {card.type === 'todo' && (
-          <div className="space-y-2 pt-1">
-            {totalCount > 0 && (
-              <div className="w-full h-1 bg-black/10 dark:bg-white/10 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-emerald-500 rounded-full transition-all duration-300"
-                  style={{ width: `${progressPercent}%` }}
-                />
-              </div>
-            )}
-            <div className="space-y-1">
-              {(card.todos || []).map((todo) => (
-                <div
-                  key={todo.id}
-                  className="flex items-center gap-3 py-1.5 min-h-[40px] rounded-lg active:bg-black/5 dark:active:bg-white/5 transition-colors"
-                >
-                  <button
-                    onClick={() => handleToggleTodo(card, todo.id)}
-                    className="p-1 text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 shrink-0"
-                  >
-                    {todo.completed ? (
-                      <CheckSquare className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
-                    ) : (
-                      <Square className="w-5 h-5" />
-                    )}
-                  </button>
-                  <input
-                    type="text"
-                    value={todo.text}
-                    onChange={(e) => {
-                      const updated = (card.todos || []).map((t) =>
-                        t.id === todo.id ? { ...t, text: e.target.value } : t
-                      );
-                      onUpdateCard(card.id, { todos: updated });
-                    }}
-                    className={`flex-1 text-xs bg-transparent outline-none ${
-                      todo.completed ? 'line-through text-slate-400 dark:text-slate-500' : 'text-slate-800 dark:text-slate-100'
-                    }`}
-                  />
-                  {todo.priority && (
-                    <span
-                      className={`text-[9px] font-bold uppercase px-1 py-0.5 rounded shrink-0 ${
-                        todo.priority === 'high'
-                          ? 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300'
-                          : 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
-                      }`}
-                    >
-                      {todo.priority}
-                    </span>
-                  )}
-                </div>
-              ))}
-            </div>
-
-            {/* Inline add task input */}
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                handleAddTodoToCard(card);
-              }}
-              className="flex items-center gap-2 pt-3 border-t border-black/5 dark:border-white/5"
+        {groups.length === 0 && (
+          <div className="py-24 text-center">
+            <h2 className="font-display text-2xl font-bold tracking-tight text-ink-900 dark:text-white">Nothing here yet</h2>
+            <p className="mt-2 text-[15px] text-ink-500 dark:text-ink-400">Add your first to-do list to get going.</p>
+            <button
+              type="button"
+              onClick={() => onOpenQuickAdd('todo')}
+              className="mt-5 inline-flex items-center gap-2 h-11 px-5 rounded-xl bg-brand-600 text-white font-semibold"
             >
-              <input
-                type="text"
-                placeholder="+ Add task..."
-                value={newTodoInput[card.id] || ''}
-                onChange={(e) =>
-                  setNewTodoInput((prev) => ({ ...prev, [card.id]: e.target.value }))
-                }
-                className="flex-1 text-xs bg-transparent outline-none text-slate-800 dark:text-slate-100"
-              />
-              <button
-                type="submit"
-                disabled={!(newTodoInput[card.id] || '').trim()}
-                className="px-3 py-1.5 text-xs rounded-lg bg-indigo-600 text-white font-medium disabled:opacity-30"
-              >
-                Add
-              </button>
-            </form>
+              <Plus className="w-4 h-4" /> New to-do list
+            </button>
           </div>
         )}
 
-        {(card.type === 'note' || card.type === 'sticky') && (
-          <textarea
-            value={card.noteContent || ''}
-            onChange={(e) => onUpdateCard(card.id, { noteContent: e.target.value })}
-            placeholder="Type your unstructured thoughts here..."
-            rows={4}
-            className="w-full text-xs bg-transparent outline-none resize-none text-slate-800 dark:text-slate-100 leading-relaxed font-sans"
-          />
-        )}
+        <div className="mt-6 space-y-9">
+          {groups.map(({ id, cluster }) => {
+            const cards = byCluster.get(id) ?? [];
+            const theme = colorTheme(cluster?.color);
+            const collapsed = cluster?.collapsed ?? false;
+            let total = 0;
+            let done = 0;
+            for (const c of cards) {
+              total += c.todos?.length ?? 0;
+              done += c.todos?.filter((t) => t.completed).length ?? 0;
+            }
 
-        {card.type === 'counter' && (
-          <div className="flex items-center justify-between py-2">
-            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-              {card.counterLabel || 'Counter'}:
-            </span>
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => onUpdateCard(card.id, { counterValue: Math.max(0, (card.counterValue || 0) - 1) })}
-                className="w-8 h-8 rounded-full bg-black/10 dark:bg-white/10 flex items-center justify-center font-bold"
-              >
-                -
-              </button>
-              <span className="text-xl font-bold text-slate-800 dark:text-slate-100 tabular-nums">
-                {card.counterValue || 0}
-              </span>
-              <button
-                onClick={() => onUpdateCard(card.id, { counterValue: (card.counterValue || 0) + 1 })}
-                className="w-8 h-8 rounded-full bg-black/10 dark:bg-white/10 flex items-center justify-center font-bold"
-              >
-                +
-              </button>
-            </div>
-          </div>
-        )}
+            return (
+              <section key={id} aria-label={cluster?.title ?? 'Not in a cluster'}>
+                <header className="flex items-center gap-2 mb-3">
+                  <button
+                    type="button"
+                    onClick={() => cluster && onUpdateCluster(cluster.id, { collapsed: !collapsed })}
+                    aria-expanded={!collapsed}
+                    className={cn(
+                      'min-w-0 inline-flex items-center gap-2 h-9 pl-4 pr-3 rounded-full',
+                      cluster ? theme.tab : 'bg-ink-200 text-ink-800 dark:bg-ink-800 dark:text-ink-100',
+                    )}
+                  >
+                    <span className="truncate font-display text-[15px] font-bold tracking-tight">{cluster?.title || (cluster ? 'Untitled' : 'Not in a cluster')}</span>
+                    <span className="shrink-0 text-[12px] font-semibold tabular-nums opacity-75">{total ? `${done}/${total}` : cards.length}</span>
+                    {cluster && <ChevronDown className={cn('w-4 h-4 shrink-0 transition-transform', !collapsed && 'rotate-180')} />}
+                  </button>
+                  <span className="flex-1" />
+                  <IconButton label="Add card here" onClick={() => onOpenQuickAdd('todo', cluster?.id)}>
+                    <Plus className="w-[18px] h-[18px]" />
+                  </IconButton>
+                  {cluster && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (confirmDelete === cluster.id) {
+                          onDeleteCluster(cluster.id);
+                          setConfirmDelete(null);
+                        } else {
+                          setConfirmDelete(cluster.id);
+                        }
+                      }}
+                      onBlur={() => setConfirmDelete(null)}
+                      aria-label={confirmDelete === cluster.id ? 'Tap again to delete cluster' : 'Delete cluster'}
+                      className={cn(
+                        'h-9 rounded-lg flex items-center justify-center gap-1.5 text-[13px] font-semibold transition-all',
+                        confirmDelete === cluster.id
+                          ? 'px-3 bg-rose-500 text-white'
+                          : 'w-9 text-ink-400 hover:text-rose-500 hover:bg-rose-500/10',
+                      )}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      {confirmDelete === cluster.id && 'Delete?'}
+                    </button>
+                  )}
+                </header>
 
-        {card.type === 'links' && (
-          <div className="space-y-1.5 pt-1">
-            {(card.bookmarks || []).map((bm) => (
-              <a
-                key={bm.id}
-                href={safeHref(bm.url)}
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-center gap-2 px-3 py-2 rounded-lg bg-black/5 dark:bg-white/5 text-xs text-indigo-600 dark:text-indigo-400 font-medium"
-              >
-                <ExternalLink className="w-3.5 h-3.5 shrink-0" />
-                <span className="truncate">{bm.title}</span>
-              </a>
-            ))}
-          </div>
-        )}
+                {!collapsed && (
+                  <div className="space-y-3">
+                    {cards.length === 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => onOpenQuickAdd('todo', cluster?.id)}
+                        className="w-full flex items-center justify-center gap-2 h-16 rounded-2xl border-2 border-dashed border-ink-200 dark:border-ink-800 text-[14px] font-semibold text-ink-400 hover:text-ink-700 hover:border-ink-300 dark:hover:text-ink-200"
+                      >
+                        <Plus className="w-4 h-4" /> Add the first card
+                      </button>
+                    ) : (
+                      cards.map((card) => (
+                        <ListCard
+                          key={card.id}
+                          card={card}
+                          onUpdate={(u) => onUpdateCard(card.id, u)}
+                          onDelete={() => onDeleteCard(card.id)}
+                        />
+                      ))
+                    )}
+                  </div>
+                )}
+              </section>
+            );
+          })}
+        </div>
       </div>
-    );
-  }
+    </div>
+  );
 };
