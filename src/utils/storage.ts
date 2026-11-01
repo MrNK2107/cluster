@@ -133,8 +133,8 @@ export const INITIAL_DOCUMENTS: BoardDocument[] = [
         color: 'purple',
         tags: ['#guesttips'],
         bookmarks: [
-          { id: 'b1', title: 'Curated Street Food Walk (Map)', url: 'https://maps.google.com' },
-          { id: 'b2', title: 'Sunrise Viewpoint Hiking Trail', url: 'https://alltrails.com' },
+          { id: 'b1', title: 'Curated Street Food Walk (Map)', url: 'https://maps.google.com/' },
+          { id: 'b2', title: 'Sunrise Viewpoint Hiking Trail', url: 'https://alltrails.com/' },
           { id: 'b3', title: 'Local Scooter Rental Hotline', url: 'tel:+910000000000' },
         ],
         createdAt: Date.now(),

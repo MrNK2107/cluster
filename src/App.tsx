@@ -128,6 +128,7 @@ export const App: React.FC = () => {
   const workspaceRef = useRef(workspace);
   const lastSavedRef = useRef<string | null>(null);
   const savingRef = useRef(false);
+  const savePromiseRef = useRef<Promise<void> | null>(null);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     workspaceRef.current = workspace;
@@ -195,7 +196,10 @@ export const App: React.FC = () => {
   /** Writes the latest workspace to the database, one request at a time. */
   const flushSave = useCallback(async function flush(): Promise<void> {
     if (UI_PREVIEW) return;
-    if (savingRef.current || lastSavedRef.current === null) return;
+    if (lastSavedRef.current === null) return;
+    // Callers that need the data saved (sign-out) wait for the running save,
+    // which also writes any edits made while it was in flight.
+    if (savingRef.current) return savePromiseRef.current ?? undefined;
     if (retryTimerRef.current) {
       clearTimeout(retryTimerRef.current);
       retryTimerRef.current = null;
@@ -208,18 +212,22 @@ export const App: React.FC = () => {
     }
     savingRef.current = true;
     setSaveState('saving');
-    const res = await saveCloudWorkspace(snapshot);
-    savingRef.current = false;
-    if (lastSavedRef.current === null) return; // Signed out meanwhile.
-    if (!res.success) {
-      setSaveState('error');
-      retryTimerRef.current = setTimeout(() => void flush(), SAVE_RETRY_MS);
-      return;
-    }
-    lastSavedRef.current = json;
-    // Edits made while the request was in flight go out right away.
-    if (JSON.stringify(workspaceRef.current) !== json) await flush();
-    else setSaveState('saved');
+    const done = (async () => {
+      const res = await saveCloudWorkspace(snapshot);
+      savingRef.current = false;
+      if (lastSavedRef.current === null) return; // Signed out meanwhile.
+      if (!res.success) {
+        setSaveState('error');
+        retryTimerRef.current = setTimeout(() => void flush(), SAVE_RETRY_MS);
+        return;
+      }
+      lastSavedRef.current = json;
+      // Edits made while the request was in flight go out right away.
+      if (JSON.stringify(workspaceRef.current) !== json) await flush();
+      else setSaveState('saved');
+    })();
+    savePromiseRef.current = done;
+    return done;
   }, []);
 
   // Every change is saved shortly after it is made.
