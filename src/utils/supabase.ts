@@ -119,6 +119,12 @@ export async function signUpWithPassword(email: string, password: string): Promi
   const client = await requireClient();
   const { data, error } = await client.auth.signUp({ email, password, options: { emailRedirectTo: appUrl() } });
   if (error) throw error;
+  // For an address that is already registered (for example through Google),
+  // Supabase reports success but sends no email and returns a user with no
+  // identities. Say so instead of promising a confirmation link.
+  if (!data.session && Array.isArray(data.user?.identities) && data.user.identities.length === 0) {
+    throw new Error(ACCOUNT_EXISTS);
+  }
   return { needsConfirmation: !data.session };
 }
 
@@ -158,6 +164,9 @@ export function readAuthRedirectError(): string | null {
  * messages are already user-facing; database errors are not, so they are
  * replaced with a short hint rather than leaking internals.
  */
+export const ACCOUNT_EXISTS =
+  'An account with this email already exists. Sign in instead: use Continue with Google if you signed up with Google, or Forgot password to set one.';
+
 export function describeError(err: unknown, fallback = 'Something went wrong. Please try again.'): string {
   if (!err || typeof err !== 'object') return fallback;
   const e = err as { message?: unknown; code?: unknown };
@@ -172,6 +181,13 @@ export function describeError(err: unknown, fallback = 'Something went wrong. Pl
   }
   if (/failed to fetch|networkerror|load failed/i.test(message)) {
     return 'Could not reach the server. Check your connection.';
+  }
+  if (message === ACCOUNT_EXISTS) return message;
+  if (/email address not authorized/i.test(message)) {
+    return 'The app can’t send email to this address yet. Use Continue with Google instead.';
+  }
+  if (/email rate limit|over_email_send_rate_limit/i.test(message) || code === 'over_email_send_rate_limit') {
+    return 'Too many emails were sent in the last hour. Try again later, or use Continue with Google.';
   }
   const authLike = /invalid login|email|password|user|signup|confirm|rate limit|too many/i.test(message);
   if (authLike && message.length < 160) return message;

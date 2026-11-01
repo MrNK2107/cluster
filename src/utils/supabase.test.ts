@@ -166,6 +166,29 @@ describe('workspace store', () => {
   });
 });
 
+describe('sign-up', () => {
+  it('reports an already registered email instead of promising a confirmation link', async () => {
+    const mod = await loadModule();
+    fake.client.auth.signUp.mockResolvedValueOnce({
+      data: { session: null, user: { email: 'taken@example.test', identities: [] } },
+      error: null,
+    } as never);
+    await expect(mod.signUpWithPassword('taken@example.test', 'secret-pass')).rejects.toThrow(mod.ACCOUNT_EXISTS);
+    expect(mod.describeError(new Error(mod.ACCOUNT_EXISTS))).toBe(mod.ACCOUNT_EXISTS);
+  });
+
+  it('asks new users to confirm their email', async () => {
+    const mod = await loadModule();
+    await expect(mod.signUpWithPassword('new@example.test', 'secret-pass')).resolves.toEqual({ needsConfirmation: true });
+  });
+
+  it('explains email delivery limits in plain words', async () => {
+    const mod = await loadModule();
+    expect(mod.describeError({ message: 'Email address not authorized' })).toMatch(/Continue with Google/);
+    expect(mod.describeError({ message: 'email rate limit exceeded', code: 'over_email_send_rate_limit' })).toMatch(/Too many emails/);
+  });
+});
+
 describe('describeError', () => {
   it('passes short auth messages through and hides database internals', async () => {
     const { describeError } = await loadModule();

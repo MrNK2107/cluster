@@ -278,7 +278,7 @@ export const AuthScreen: React.FC = () => {
         const { needsConfirmation } = await signUpWithPassword(trimmed, password);
         setPassword('');
         if (needsConfirmation) {
-          setStatus({ text: `We sent a confirmation link to ${trimmed}. Open it, then sign in here.`, type: 'success' });
+          setStatus({ text: `We sent a confirmation link to ${trimmed}. Open it, then sign in here. Not there after a minute? Check your spam folder.`, type: 'success' });
           setMode('signin');
         }
       } else {
