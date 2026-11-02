@@ -11,6 +11,8 @@ import {
   INITIAL_DOCUMENTS,
   createStarterWorkspace,
   createEmptyWorkspace,
+  isOwnerEmail,
+  removeUntouchedSamples,
   readLegacyLocalWorkspace,
   clearLegacyLocalWorkspace,
   exportWorkspaceJSON
@@ -118,6 +120,7 @@ export const App: React.FC = () => {
   );
   const [recoveryOpen, setRecoveryOpen] = useState(false);
   const userId = user?.id ?? null;
+  const userEmail = user?.email ?? null;
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -174,15 +177,26 @@ export const App: React.FC = () => {
         return;
       }
       let ws = res.data;
+      const owner = isOwnerEmail(userEmail);
       if (!ws) {
-        ws = readLegacyLocalWorkspace() ?? createEmptyWorkspace();
+        // Data kept in this browser before accounts existed is the owner's;
+        // every other new account starts empty.
+        const legacy = owner ? readLegacyLocalWorkspace() : null;
+        ws = legacy ?? createEmptyWorkspace();
         const created = await saveCloudWorkspace(ws);
         if (cancelled) return;
         if (!created.success) {
           setLoadError(created.error ?? 'Could not create your workspace. Please try again.');
           return;
         }
-        clearLegacyLocalWorkspace();
+        if (legacy) clearLegacyLocalWorkspace();
+      } else if (!owner) {
+        const cleaned = removeUntouchedSamples(ws);
+        if (cleaned) {
+          const saved = await saveCloudWorkspace(cleaned);
+          if (cancelled) return;
+          if (saved.success) ws = cleaned;
+        }
       }
       lastSavedRef.current = JSON.stringify(ws);
       setWorkspace(ws);
@@ -192,7 +206,7 @@ export const App: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [userId, reloadKey]);
+  }, [userId, userEmail, reloadKey]);
 
   /** Writes the latest workspace to the database, one request at a time. */
   const flushSave = useCallback(async function flush(): Promise<void> {

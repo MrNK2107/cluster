@@ -298,3 +298,44 @@ export function exportWorkspaceJSON(data: WorkspaceData): void {
   a.click();
   URL.revokeObjectURL(url);
 }
+
+/** The only account that may inherit data kept in this browser before accounts existed. */
+export const OWNER_EMAIL = 'nandakishorsureshpriya@gmail.com';
+
+export function isOwnerEmail(email: string | null | undefined): boolean {
+  return (email ?? '').trim().toLowerCase() === OWNER_EMAIL;
+}
+
+/** A space's content with timestamps and camera position left out, for comparing. */
+function sampleFingerprint(doc: BoardDocument): string {
+  return JSON.stringify(
+    {
+      title: doc.title,
+      clusters: doc.clusters,
+      cards: doc.cards,
+      connections: doc.connections,
+    },
+    (key, value) => {
+      if (key === 'createdAt' || key === 'updatedAt') return undefined;
+      if (value && typeof value === 'object' && !Array.isArray(value)) {
+        // Saved copies come back with keys in a different order.
+        return Object.fromEntries(Object.keys(value).sort().map((k) => [k, value[k]]));
+      }
+      return value;
+    },
+  );
+}
+
+/**
+ * Accounts created before new accounts started empty were given the sample
+ * spaces. Remove those spaces when they are still exactly as shipped, keeping
+ * anything the person changed. Returns null when nothing needs removing.
+ */
+export function removeUntouchedSamples(ws: WorkspaceData): WorkspaceData | null {
+  const samples = new Map(INITIAL_DOCUMENTS.map((d) => [d.id, sampleFingerprint(d)]));
+  const kept = ws.documents.filter((d) => samples.get(d.id) !== sampleFingerprint(d));
+  if (kept.length === ws.documents.length) return null;
+  if (kept.length === 0) return { ...createEmptyWorkspace(), theme: ws.theme };
+  const activeDocId = kept.some((d) => d.id === ws.activeDocId) ? ws.activeDocId : kept[0].id;
+  return { ...ws, documents: kept, activeDocId };
+}

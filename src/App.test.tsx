@@ -8,6 +8,12 @@ const LEGACY_KEY = 'clustr_workspace_v1';
 // The starter data shares module-level objects; copy it before editing.
 const createStarterWorkspace = (): WorkspaceData => structuredClone(sharedStarter());
 const SAVE_WAIT = { timeout: 3000 };
+// A workspace the person has edited, so loading it does not clean out sample spaces.
+const createEditedWorkspace = (): WorkspaceData => {
+  const ws = createStarterWorkspace();
+  ws.documents.forEach((d) => (d.title = `${d.title} (edited)`));
+  return ws;
+};
 
 let fake: FakeSupabase;
 
@@ -29,7 +35,7 @@ function seedRow(userId: string, ws: WorkspaceData) {
   fake.rows.set(userId, { user_id: userId, data: structuredClone(ws), updated_at: '' });
 }
 
-async function signedInApp(ws = createStarterWorkspace()) {
+async function signedInApp(ws = createEditedWorkspace()) {
   seedRow('u1', ws);
   fake.signIn('u1', 'me@example.test');
   await renderApp();
@@ -138,12 +144,50 @@ describe('loading the account workspace', () => {
     const legacy = createStarterWorkspace();
     legacy.documents[0].title = 'From this browser';
     localStorage.setItem(LEGACY_KEY, JSON.stringify(legacy));
-    fake.signIn('new-user', 'new@example.test');
+    fake.signIn('new-user', 'nandakishorsureshpriya@gmail.com');
     await renderApp();
-    await screen.findByText('new@example.test');
+    await screen.findByText('nandakishorsureshpriya@gmail.com');
 
     expect(storedRow('new-user').documents[0].title).toBe('From this browser');
     expect(localStorage.getItem(LEGACY_KEY)).toBeNull();
+  });
+
+  it('does not give the browser-only workspace to any other new account', async () => {
+    const legacy = createStarterWorkspace();
+    legacy.documents[0].title = 'From this browser';
+    localStorage.setItem(LEGACY_KEY, JSON.stringify(legacy));
+    fake.signIn('stranger', 'stranger@example.test');
+    await renderApp();
+    await screen.findByText('stranger@example.test');
+
+    const ws = storedRow('stranger');
+    expect(ws.documents).toHaveLength(1);
+    expect(ws.documents[0].cards).toEqual([]);
+    expect(localStorage.getItem(LEGACY_KEY)).not.toBeNull();
+  });
+
+  it('removes untouched sample spaces from an existing account but keeps edited ones', async () => {
+    const ws = createStarterWorkspace();
+    ws.documents[1].cards[0].title = 'My own edit';
+    seedRow('u3', ws);
+    fake.signIn('u3', 'other@example.test');
+    await renderApp();
+    await screen.findByText('other@example.test');
+
+    const stored = storedRow('u3');
+    expect(stored.documents.map((d) => d.id)).toEqual(['doc-life-scratchpad']);
+    expect(stored.activeDocId).toBe('doc-life-scratchpad');
+  });
+
+  it('replaces an all-sample workspace with one empty space', async () => {
+    seedRow('u4', createStarterWorkspace());
+    fake.signIn('u4', 'other@example.test');
+    await renderApp();
+    await screen.findByText('other@example.test');
+
+    const stored = storedRow('u4');
+    expect(stored.documents).toHaveLength(1);
+    expect(stored.documents[0].cards).toEqual([]);
   });
 
   it('gives a brand-new account one empty space instead of sample content', async () => {
