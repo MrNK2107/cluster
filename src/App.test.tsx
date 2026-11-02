@@ -318,3 +318,93 @@ describe('autosave and sync', () => {
     expect(storedRow().theme).toBe('dark');
   });
 });
+
+describe('sharing a space', () => {
+  const OWNER_WS = (): WorkspaceData => {
+    const ws = createEditedWorkspace();
+    ws.documents[0].title = 'Hackathon plan';
+    ws.documents[0].icon = '🚀';
+    ws.documents[1].title = 'Private notes';
+    ws.activeDocId = ws.documents[0].id;
+    return ws;
+  };
+
+  async function shareWithTeammate() {
+    fake.addUser('u2', 'teammate@example.test', 'Team Mate');
+    await signedInApp(OWNER_WS());
+    fireEvent.click(screen.getByTitle('Share this space'));
+    fireEvent.change(screen.getByPlaceholderText('Search by email'), { target: { value: 'team' } });
+    fireEvent.click(await screen.findByRole('button', { name: 'Add teammate@example.test' }));
+    await waitFor(() => expect(fake.members).toHaveLength(1));
+  }
+
+  it('finds people by email and gives them the space', async () => {
+    await shareWithTeammate();
+    const [space] = [...fake.spaces.values()];
+    expect((space.doc as BoardDocumentLike).title).toBe('Hackathon plan');
+    expect(fake.members[0]).toMatchObject({ user_id: 'u2', email: 'teammate@example.test' });
+    // The space moves out of the owner's own row; their other spaces stay.
+    await waitFor(() => expect(storedRow('u1').documents.map((d) => d.title)).toEqual(['Private notes']), SAVE_WAIT);
+    expect(screen.getByTitle('People in this space')).toBeTruthy();
+  });
+
+  it('says when no account matches the email', async () => {
+    await signedInApp(OWNER_WS());
+    fireEvent.click(screen.getByTitle('Share this space'));
+    fireEvent.change(screen.getByPlaceholderText('Search by email'), { target: { value: 'nobody@' } });
+    expect(await screen.findByText(/need to sign in to clustr once/)).toBeTruthy();
+    expect(fake.spaces.size).toBe(0);
+  });
+
+  it('lets the person it was shared with open and edit it', async () => {
+    await shareWithTeammate();
+    await waitFor(() => expect(storedRow('u1').documents).toHaveLength(1), SAVE_WAIT);
+    await act(async () => {
+      fake.signIn('u2', 'teammate@example.test');
+    });
+    fireEvent.click(await screen.findByText('Hackathon plan'));
+    fireEvent.click(screen.getByTitle('Rename space'));
+    const input = screen.getByLabelText('Space name');
+    fireEvent.change(input, { target: { value: 'Team plan' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    await waitFor(() => expect(([...fake.spaces.values()][0].doc as BoardDocumentLike).title).toBe('Team plan'), SAVE_WAIT);
+    // Their own account row never holds the shared space.
+    expect(storedRow('u2').documents.map((d) => d.title)).toEqual(['My space']);
+    expect(screen.queryByText('Private notes')).toBeNull();
+  });
+
+  it('lets a member leave', async () => {
+    await shareWithTeammate();
+    await act(async () => {
+      fake.signIn('u2', 'teammate@example.test');
+    });
+    await screen.findByText('Hackathon plan');
+    fireEvent.click(screen.getByLabelText('Options for Hackathon plan'));
+    fireEvent.click(screen.getByText('Leave space'));
+    fireEvent.click(screen.getByText('Click again to leave'));
+    await waitFor(() => expect(fake.members).toHaveLength(0));
+    await waitFor(() => expect(screen.queryByText('Hackathon plan')).toBeNull());
+    expect(fake.spaces.size).toBe(1);
+  });
+
+  it('stops sharing and keeps the space in the owner’s account', async () => {
+    await shareWithTeammate();
+    fireEvent.click(screen.getByRole('button', { name: 'Stop sharing' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Click again to stop sharing' }));
+    await waitFor(() => expect(fake.spaces.size).toBe(0));
+    expect(fake.members).toHaveLength(0);
+    await waitFor(
+      () => expect(storedRow('u1').documents.map((d) => d.title).sort()).toEqual(['Hackathon plan', 'Private notes']),
+      SAVE_WAIT,
+    );
+  });
+
+  it('still opens the workspace when the database has no sharing tables yet', async () => {
+    fake.failures.sharingMissing = true;
+    await signedInApp(OWNER_WS());
+    expect(screen.getAllByText('Hackathon plan').length).toBeGreaterThan(0);
+  });
+});
+
+type BoardDocumentLike = { title: string };

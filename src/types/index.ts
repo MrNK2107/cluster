@@ -79,11 +79,22 @@ export interface BoardDocument {
   clusters: Cluster[];
   cards: CardData[];
   connections: Connection[];
-  viewport: {
-    x: number;
-    y: number;
-    zoom: number;
-  };
+  viewport: Viewport;
+  /** Set when the space is shared between accounts; never saved inside the space itself. */
+  share?: ShareInfo;
+}
+
+export interface Viewport {
+  x: number;
+  y: number;
+  zoom: number;
+}
+
+export interface ShareInfo {
+  spaceId: string;
+  ownerId: string;
+  ownerEmail: string;
+  isOwner: boolean;
 }
 
 export interface WorkspaceData {
@@ -91,4 +102,6 @@ export interface WorkspaceData {
   activeDocId: string;
   documents: BoardDocument[];
   theme: 'dark' | 'light' | 'system';
+  /** Each person's own canvas position in spaces shared with them, by space document id. */
+  sharedViewports?: Record<string, Viewport>;
 }

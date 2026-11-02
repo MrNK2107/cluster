@@ -213,7 +213,7 @@ export async function fetchCloudWorkspace(): Promise<{ data: WorkspaceData | nul
 
     if (error) return { data: null, error: describeError(error) };
     if (!data?.data) return { data: null };
-    return { data: sanitizeWorkspace(data.data) };
+    return { data: sanitizeWorkspace(data.data, { allowEmpty: true }) };
   } catch (err) {
     return { data: null, error: describeError(err) };
   }

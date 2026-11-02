@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from 'react';
-import { Plus, Search, MoreHorizontal, Copy, Trash2, PanelLeftClose } from 'lucide-react';
+import { Plus, Search, MoreHorizontal, Copy, Trash2, PanelLeftClose, Users, LogOut } from 'lucide-react';
 import type { BoardDocument } from '../types';
 import type { AuthUser } from '../utils/supabase';
 import { IconButton, Kbd, LogoMark, MOD_KEY, MenuItem, MenuPanel, Wordmark, useDismiss } from './ui';
@@ -13,6 +13,7 @@ interface SidebarProps {
   user: AuthUser;
   onSelectDocument: (id: string) => void;
   onCreateDocument: () => void;
+  onShareDocument: (id: string) => void;
   onDuplicateDocument: (id: string) => void;
   onDeleteDocument: (id: string) => void;
   onOpenCommandPalette: () => void;
@@ -39,9 +40,10 @@ const SpaceRow: React.FC<{
   active: boolean;
   canDelete: boolean;
   onSelect: () => void;
+  onShare: () => void;
   onDuplicate: () => void;
   onDelete: () => void;
-}> = ({ doc, active, canDelete, onSelect, onDuplicate, onDelete }) => {
+}> = ({ doc, active, canDelete, onSelect, onShare, onDuplicate, onDelete }) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const close = useCallback(() => {
@@ -50,6 +52,8 @@ const SpaceRow: React.FC<{
   }, []);
   const menuRef = useDismiss(menuOpen, close);
   const { total, done } = docProgress(doc);
+  const leaving = Boolean(doc.share && !doc.share.isOwner);
+  const deleteLabel = leaving ? 'Leave space' : doc.share ? 'Delete for everyone' : 'Delete space';
   const pct = total ? Math.round((done / total) * 100) : 0;
 
   return (
@@ -72,7 +76,15 @@ const SpaceRow: React.FC<{
           {doc.icon || '📝'}
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-[14px] font-semibold">{stripLeadingEmoji(doc.title, doc.icon)}</span>
+          <span className="flex items-center gap-1.5 min-w-0">
+            <span className="truncate text-[14px] font-semibold">{stripLeadingEmoji(doc.title, doc.icon)}</span>
+            {doc.share && (
+              <Users
+                className="w-3.5 h-3.5 shrink-0 text-ink-400"
+                aria-label={doc.share.isOwner ? 'Shared' : `Shared by ${doc.share.ownerEmail}`}
+              />
+            )}
+          </span>
           {total > 0 ? (
             <span className="mt-1.5 flex items-center gap-2">
               <span className="h-1 flex-1 rounded-full bg-white/10 overflow-hidden">
@@ -108,6 +120,15 @@ const SpaceRow: React.FC<{
         {menuOpen && (
           <MenuPanel className="right-0 top-full mt-1 w-52">
             <MenuItem
+              icon={<Users className="w-4 h-4" />}
+              onClick={() => {
+                onShare();
+                close();
+              }}
+            >
+              {doc.share && !doc.share.isOwner ? 'People' : 'Share…'}
+            </MenuItem>
+            <MenuItem
               icon={<Copy className="w-4 h-4" />}
               onClick={() => {
                 onDuplicate();
@@ -119,7 +140,7 @@ const SpaceRow: React.FC<{
             {canDelete && (
               <MenuItem
                 tone="danger"
-                icon={<Trash2 className="w-4 h-4" />}
+                icon={leaving ? <LogOut className="w-4 h-4" /> : <Trash2 className="w-4 h-4" />}
                 onClick={() => {
                   if (!confirming) {
                     setConfirming(true);
@@ -129,7 +150,7 @@ const SpaceRow: React.FC<{
                   close();
                 }}
               >
-                {confirming ? 'Click again to delete' : 'Delete space'}
+                {confirming ? (leaving ? 'Click again to leave' : 'Click again to delete') : deleteLabel}
               </MenuItem>
             )}
           </MenuPanel>
@@ -146,6 +167,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   user,
   onSelectDocument,
   onCreateDocument,
+  onShareDocument,
   onDuplicateDocument,
   onDeleteDocument,
   onOpenCommandPalette,
@@ -216,11 +238,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
               key={doc.id}
               doc={doc}
               active={doc.id === activeDocId}
-              canDelete={documents.length > 1}
+              canDelete={Boolean(doc.share) || documents.length > 1}
               onSelect={() => {
                 onSelectDocument(doc.id);
                 if (isMobile()) onClose();
               }}
+              onShare={() => onShareDocument(doc.id)}
               onDuplicate={() => onDuplicateDocument(doc.id)}
               onDelete={() => onDeleteDocument(doc.id)}
             />

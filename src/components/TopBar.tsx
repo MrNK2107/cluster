@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from 'react';
-import { Moon, Sun, PanelLeftOpen, LayoutGrid, Rows3, Search, Hash, X, Check, CloudOff, Loader2 } from 'lucide-react';
+import { Moon, Sun, PanelLeftOpen, LayoutGrid, Rows3, Search, Hash, X, Check, CloudOff, Loader2, Users } from 'lucide-react';
 import type { BoardDocument } from '../types';
 import type { SaveState } from '../App';
 import { IconButton, MenuItem, MenuLabel, MenuPanel, useDismiss } from './ui';
@@ -20,6 +20,7 @@ interface TopBarProps {
   onSelectTagFilter: (tag: string | null) => void;
   onOpenCommandPalette: () => void;
   onUpdateDocTitle: (title: string) => void;
+  onShare: () => void;
 }
 
 const SaveIndicator: React.FC<{ state: SaveState }> = ({ state }) => (
@@ -85,6 +86,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   onSelectTagFilter,
   onOpenCommandPalette,
   onUpdateDocTitle,
+  onShare,
 }) => {
   const [editing, setEditing] = useState(false);
   const [tagMenu, setTagMenu] = useState(false);
@@ -183,6 +185,21 @@ export const TopBar: React.FC<TopBarProps> = ({
             )}
           </div>
         )}
+
+        <button
+          type="button"
+          onClick={onShare}
+          title={document.share ? 'People in this space' : 'Share this space'}
+          className={cn(
+            'inline-flex items-center gap-1.5 h-9 px-2.5 sm:px-3 rounded-xl text-[13px] font-semibold transition-colors',
+            document.share
+              ? 'bg-brand-600/10 text-brand-700 hover:bg-brand-600/15 dark:bg-brand-500/15 dark:text-brand-300 dark:hover:bg-brand-500/25'
+              : 'text-ink-600 hover:bg-ink-100 hover:text-ink-900 dark:text-ink-300 dark:hover:bg-ink-800 dark:hover:text-white',
+          )}
+        >
+          <Users className="w-4 h-4" />
+          <span className="hidden sm:inline">{document.share ? 'Shared' : 'Share'}</span>
+        </button>
 
         <ViewSwitch value={viewMode} onChange={onSetViewMode} />
 

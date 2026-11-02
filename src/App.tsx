@@ -26,6 +26,19 @@ import {
   type AuthUser,
 } from './utils/supabase';
 import { sanitizeWorkspace } from './utils/validate';
+import {
+  addMember,
+  createSharedSpace,
+  deleteSharedSpace,
+  fetchSharedSpace,
+  fetchSharedSpaces,
+  removeMember,
+  saveSharedSpace,
+  sharedDocId,
+  sharedPayload,
+  type Person,
+} from './utils/sharing';
+import { mergeDocs, mergeWorkspace, splitWorkspace } from './utils/workspaceSync';
 import { Sidebar } from './components/Sidebar';
 import { TopBar } from './components/TopBar';
 import { Canvas } from './components/Canvas';
@@ -37,6 +50,7 @@ import { CanvasDock, CARD_KINDS } from './components/CanvasDock';
 import { AuthScreen, WorkspaceLoading } from './components/AuthScreen';
 import { CommandPalette } from './components/CommandPalette';
 import { MiniMap } from './components/MiniMap';
+import { ShareDialog } from './components/ShareDialog';
 import { Plus } from 'lucide-react';
 
 export type SaveState = 'saved' | 'saving' | 'error';
@@ -44,6 +58,8 @@ export type SaveState = 'saved' | 'saving' | 'error';
 /** Debounce before an edit is written to the database. */
 const SAVE_DELAY_MS = 600;
 const SAVE_RETRY_MS = 5000;
+/** How often an open shared space checks for other people's edits. */
+const SHARED_POLL_MS = 8000;
 
 /**
  * Local UI preview: `VITE_UI_PREVIEW=1 npm run dev` skips sign-in and keeps
@@ -109,6 +125,7 @@ export const App: React.FC = () => {
   const [templatesModalOpen, setTemplatesModalOpen] = useState(false);
   const [accountModalOpen, setAccountModalOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [shareDocId, setShareDocId] = useState<string | null>(null);
 
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [quickAddType, setQuickAddType] = useState<CardType>('todo');
@@ -127,16 +144,27 @@ export const App: React.FC = () => {
   const [saveState, setSaveState] = useState<SaveState>('saved');
 
   // The database is the source of truth. `lastSavedRef` holds the JSON of the
-  // copy the database has (null while nothing is loaded), so only real
-  // changes are written.
+  // workspace as the database has it (null while nothing is loaded), so only
+  // real changes are written. The account row and each shared space are
+  // tracked separately so a save only writes the parts that changed.
   const workspaceRef = useRef(workspace);
   const lastSavedRef = useRef<string | null>(null);
+  const lastPersonalRef = useRef<string | null>(null);
+  const lastSharedRef = useRef(new Map<string, BoardDocument>());
   const savingRef = useRef(false);
   const savePromiseRef = useRef<Promise<void> | null>(null);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     workspaceRef.current = workspace;
   }, [workspace]);
+
+  /** Records `ws` as exactly what the database holds. */
+  const markSaved = useCallback((ws: WorkspaceData) => {
+    const { personal, shared } = splitWorkspace(ws);
+    lastSavedRef.current = JSON.stringify(ws);
+    lastPersonalRef.current = JSON.stringify(personal);
+    lastSharedRef.current = new Map(shared);
+  }, []);
 
   // Track the signed-in account.
   useEffect(() => {
@@ -153,12 +181,16 @@ export const App: React.FC = () => {
     };
   }, []);
 
-  // Load the account's workspace. A brand-new account starts from whatever was
-  // kept in this browser before accounts existed, or from one empty space.
+  // Load the account's workspace and the spaces shared with it. A brand-new
+  // account starts from whatever was kept in this browser before accounts
+  // existed (owner only), or from one empty space.
   useEffect(() => {
     setLoaded(false);
     setLoadError(null);
     lastSavedRef.current = null;
+    lastPersonalRef.current = null;
+    lastSharedRef.current = new Map();
+    setShareDocId(null);
     if (!userId) {
       setWorkspace(createStarterWorkspace());
       return;
@@ -170,35 +202,48 @@ export const App: React.FC = () => {
     }
     let cancelled = false;
     void (async () => {
-      const res = await fetchCloudWorkspace();
+      const [res, sharedRes] = await Promise.all([fetchCloudWorkspace(), fetchSharedSpaces()]);
       if (cancelled) return;
-      if (res.error) {
-        setLoadError(res.error);
+      if (res.error || sharedRes.error) {
+        setLoadError(res.error ?? sharedRes.error ?? null);
         return;
       }
-      let ws = res.data;
+      let personal = res.data;
       const owner = isOwnerEmail(userEmail);
-      if (!ws) {
+      if (!personal) {
         // Data kept in this browser before accounts existed is the owner's;
         // every other new account starts empty.
         const legacy = owner ? readLegacyLocalWorkspace() : null;
-        ws = legacy ?? createEmptyWorkspace();
-        const created = await saveCloudWorkspace(ws);
+        personal = legacy ?? createEmptyWorkspace();
+        const created = await saveCloudWorkspace(personal);
         if (cancelled) return;
         if (!created.success) {
           setLoadError(created.error ?? 'Could not create your workspace. Please try again.');
           return;
         }
         if (legacy) clearLegacyLocalWorkspace();
-      } else if (!owner) {
-        const cleaned = removeUntouchedSamples(ws);
+      } else if (!owner && personal.documents.length > 0) {
+        const cleaned = removeUntouchedSamples(personal);
         if (cleaned) {
           const saved = await saveCloudWorkspace(cleaned);
           if (cancelled) return;
-          if (saved.success) ws = cleaned;
+          if (saved.success) personal = cleaned;
         }
       }
-      lastSavedRef.current = JSON.stringify(ws);
+      let ws = mergeWorkspace(personal, sharedRes.data);
+      if (ws.documents.length === 0) {
+        // Every space was shared and has since gone: start a fresh one.
+        const empty = createEmptyWorkspace();
+        personal = { ...personal, documents: empty.documents, activeDocId: empty.activeDocId };
+        const saved = await saveCloudWorkspace(personal);
+        if (cancelled) return;
+        if (!saved.success) {
+          setLoadError(saved.error ?? 'Could not create your workspace. Please try again.');
+          return;
+        }
+        ws = mergeWorkspace(personal, sharedRes.data);
+      }
+      markSaved(ws);
       setWorkspace(ws);
       setSaveState('saved');
       setLoaded(true);
@@ -206,7 +251,7 @@ export const App: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [userId, userEmail, reloadKey]);
+  }, [userId, userEmail, reloadKey, markSaved]);
 
   /** Writes the latest workspace to the database, one request at a time. */
   const flushSave = useCallback(async function flush(): Promise<void> {
@@ -228,10 +273,66 @@ export const App: React.FC = () => {
     savingRef.current = true;
     setSaveState('saving');
     const done = (async () => {
-      const res = await saveCloudWorkspace(snapshot);
+      const { personal, shared } = splitWorkspace(snapshot);
+      let ok = true;
+
+      const personalJson = JSON.stringify(personal);
+      if (personalJson !== lastPersonalRef.current) {
+        const res = await saveCloudWorkspace(personal);
+        if (res.success) lastPersonalRef.current = personalJson;
+        else ok = false;
+      }
+
+      // Shared spaces: fold in edits other people saved since we last synced.
+      const merged = new Map<string, { sent: BoardDocument; saved: BoardDocument }>();
+      const gone: string[] = [];
+      for (const [spaceId, doc] of shared) {
+        const base = lastSharedRef.current.get(spaceId);
+        if (base && JSON.stringify(base) === JSON.stringify(doc)) continue;
+        const latest = await fetchSharedSpace(spaceId);
+        if (latest.error) {
+          ok = false;
+          continue;
+        }
+        if (!latest.doc) {
+          gone.push(spaceId); // Deleted, or no longer shared with this account.
+          continue;
+        }
+        const theirs = sharedPayload(latest.doc);
+        const toWrite = base && JSON.stringify(theirs) !== JSON.stringify(base) ? mergeDocs(base, doc, theirs) : doc;
+        const res = await saveSharedSpace(spaceId, toWrite);
+        if (!res.success) {
+          ok = false;
+          continue;
+        }
+        const savedDoc = sharedPayload(toWrite);
+        lastSharedRef.current.set(spaceId, savedDoc);
+        if (toWrite !== doc) merged.set(spaceId, { sent: doc, saved: savedDoc });
+      }
+
       savingRef.current = false;
       if (lastSavedRef.current === null) return; // Signed out meanwhile.
-      if (!res.success) {
+
+      if (merged.size || gone.length) {
+        // Show what others added, keeping anything typed since the snapshot.
+        gone.forEach((id) => lastSharedRef.current.delete(id));
+        setWorkspace((prev) => {
+          let documents = prev.documents
+            .filter((d) => !(d.share && gone.includes(d.share.spaceId)))
+            .map((d) => {
+              const m = d.share && merged.get(d.share.spaceId);
+              if (!m) return d;
+              const current = sharedPayload(d);
+              const next = JSON.stringify(current) === JSON.stringify(m.sent) ? m.saved : mergeDocs(m.sent, current, m.saved);
+              return { ...next, id: d.id, viewport: d.viewport, share: d.share };
+            });
+          if (documents.length === 0) documents = createEmptyWorkspace().documents;
+          const activeDocId = documents.some((d) => d.id === prev.activeDocId) ? prev.activeDocId : documents[0].id;
+          return { ...prev, documents, activeDocId };
+        });
+      }
+
+      if (!ok) {
         setSaveState('error');
         retryTimerRef.current = setTimeout(() => void flush(), SAVE_RETRY_MS);
         return;
@@ -259,18 +360,22 @@ export const App: React.FC = () => {
     if (UI_PREVIEW || !loaded) return;
     const isDirty = () => savingRef.current || JSON.stringify(workspaceRef.current) !== lastSavedRef.current;
 
+    const pullLatest = async () => {
+      if (isDirty()) return;
+      const [res, sharedRes] = await Promise.all([fetchCloudWorkspace(), fetchSharedSpaces()]);
+      if (!res.data || sharedRes.error || isDirty() || lastSavedRef.current === null) return;
+      const latest = mergeWorkspace(res.data, sharedRes.data);
+      if (latest.documents.length === 0) return;
+      if (JSON.stringify(latest) === lastSavedRef.current) return;
+      markSaved(latest);
+      setWorkspace(latest);
+    };
     const onVisibility = async () => {
       if (document.visibilityState === 'hidden') {
         void flushSave();
         return;
       }
-      if (isDirty()) return;
-      const res = await fetchCloudWorkspace();
-      if (!res.data || isDirty() || lastSavedRef.current === null) return;
-      const json = JSON.stringify(res.data);
-      if (json === lastSavedRef.current) return;
-      lastSavedRef.current = json;
-      setWorkspace(res.data);
+      await pullLatest();
     };
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
       if (!isDirty()) return;
@@ -281,12 +386,17 @@ export const App: React.FC = () => {
     document.addEventListener('visibilitychange', onVisibility);
     window.addEventListener('focus', onVisibility);
     window.addEventListener('beforeunload', onBeforeUnload);
+    // While a shared space is open, check for other people's edits.
+    const poll = setInterval(() => {
+      if (document.visibilityState === 'visible' && workspaceRef.current.documents.some((d) => d.share)) void pullLatest();
+    }, SHARED_POLL_MS);
     return () => {
+      clearInterval(poll);
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('focus', onVisibility);
       window.removeEventListener('beforeunload', onBeforeUnload);
     };
-  }, [loaded, flushSave]);
+  }, [loaded, flushSave, markSaved]);
 
   const handleSignOut = async () => {
     await flushSave();
@@ -540,8 +650,106 @@ export const App: React.FC = () => {
     handlePanTo(-(x * zoom - (main?.width ?? window.innerWidth) / 2 + 160), -(y * zoom - 80));
   };
 
+  // Sharing ----------------------------------------------------------------
+
+  const newDocId = () => `doc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  const withoutShare = (doc: BoardDocument): BoardDocument => {
+    const { share: _share, ...rest } = doc;
+    return rest;
+  };
+
+  /** Takes a space out of this account's view; the last one is replaced by an empty space. */
+  const removeDocLocally = (id: string) => {
+    setWorkspace((prev) => {
+      let documents = prev.documents.filter((d) => d.id !== id);
+      if (documents.length === 0) documents = createEmptyWorkspace().documents;
+      const activeDocId = documents.some((d) => d.id === prev.activeDocId) ? prev.activeDocId : documents[0].id;
+      return { ...prev, documents, activeDocId };
+    });
+  };
+
+  const findDoc = (id: string | null) => (id ? workspaceRef.current.documents.find((d) => d.id === id) : undefined);
+
+  const handleAddPerson = async (person: Person): Promise<string | null> => {
+    const doc = findDoc(shareDocId);
+    if (!doc || !user) return 'This space no longer exists.';
+    if (doc.share) {
+      const res = await addMember(doc.share.spaceId, person);
+      return res.success ? null : (res.error ?? 'Could not add them. Please try again.');
+    }
+    // First person added: the space moves out of the account row into a shared one.
+    const created = await createSharedSpace(doc);
+    if (!created.spaceId) return created.error ?? 'Could not share this space. Please try again.';
+    const spaceId = created.spaceId;
+    const added = await addMember(spaceId, person);
+    const id = sharedDocId(spaceId);
+    const share = { spaceId, ownerId: user.id, ownerEmail: user.email ?? '', isOwner: true };
+    lastSharedRef.current.set(spaceId, sharedPayload({ ...doc, id }));
+    setWorkspace((prev) => ({
+      ...prev,
+      documents: prev.documents.map((d) => (d.id === doc.id ? { ...d, id, share } : d)),
+      activeDocId: prev.activeDocId === doc.id ? id : prev.activeDocId,
+    }));
+    setShareDocId(id);
+    return added.success ? null : (added.error ?? 'The space is shared, but adding them failed. Please try again.');
+  };
+
+  const handleRemovePerson = async (memberId: string): Promise<string | null> => {
+    const doc = findDoc(shareDocId);
+    if (!doc?.share) return null;
+    const res = await removeMember(doc.share.spaceId, memberId);
+    return res.success ? null : (res.error ?? 'Could not remove them. Please try again.');
+  };
+
+  const handleStopSharing = async (): Promise<string | null> => {
+    const doc = findDoc(shareDocId);
+    if (!doc?.share) return null;
+    // Keep the owner's latest content as an ordinary space first, so nothing is lost.
+    const spaceId = doc.share.spaceId;
+    const id = newDocId();
+    setWorkspace((prev) => ({
+      ...prev,
+      documents: prev.documents.map((d) => (d.id === doc.id ? { ...withoutShare(d), id } : d)),
+      activeDocId: prev.activeDocId === doc.id ? id : prev.activeDocId,
+    }));
+    const res = await deleteSharedSpace(spaceId);
+    lastSharedRef.current.delete(spaceId);
+    setShareDocId(null);
+    return res.success ? null : (res.error ?? 'Could not stop sharing. Please try again.');
+  };
+
+  const handleLeave = async (): Promise<string | null> => {
+    const doc = findDoc(shareDocId);
+    if (!doc?.share || !user) return null;
+    const res = await removeMember(doc.share.spaceId, user.id);
+    if (!res.success) return res.error ?? 'Could not leave the space. Please try again.';
+    lastSharedRef.current.delete(doc.share.spaceId);
+    removeDocLocally(doc.id);
+    setShareDocId(null);
+    return null;
+  };
+
+  const handleDeleteDocument = async (id: string) => {
+    const doc = findDoc(id);
+    if (!doc) return;
+    if (doc.share && user) {
+      const res = doc.share.isOwner ? await deleteSharedSpace(doc.share.spaceId) : await removeMember(doc.share.spaceId, user.id);
+      if (!res.success) {
+        window.alert(res.error ?? 'Could not remove this space. Please try again.');
+        return;
+      }
+      lastSharedRef.current.delete(doc.share.spaceId);
+      removeDocLocally(id);
+      return;
+    }
+    if (workspaceRef.current.documents.length <= 1) return;
+    removeDocLocally(id);
+  };
+
+  const shareDoc = shareDocId ? workspace.documents.find((d) => d.id === shareDocId) : undefined;
+
   const toggleTheme = () => setWorkspace((prev) => ({ ...prev, theme: prev.theme === 'dark' ? 'light' : 'dark' }));
-  const anyModalOpen = templatesModalOpen || accountModalOpen || commandPaletteOpen || quickAddOpen || recoveryOpen;
+  const anyModalOpen = shareDocId !== null || templatesModalOpen || accountModalOpen || commandPaletteOpen || quickAddOpen || recoveryOpen;
 
   // Single-key shortcuts for adding things to the canvas.
   const shortcutRef = useRef<(e: KeyboardEvent) => void>(() => {});
@@ -594,12 +802,13 @@ export const App: React.FC = () => {
         user={user}
         onSelectDocument={(id) => setWorkspace((prev) => ({ ...prev, activeDocId: id }))}
         onCreateDocument={() => setTemplatesModalOpen(true)}
+        onShareDocument={setShareDocId}
         onDuplicateDocument={(id) => {
           const doc = workspace.documents.find((d) => d.id === id);
           if (!doc) return;
           const dup: BoardDocument = {
-            ...doc,
-            id: `doc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            ...withoutShare(doc),
+            id: newDocId(),
             title: `${doc.title} copy`,
             createdAt: Date.now(),
             updatedAt: Date.now(),
@@ -610,15 +819,7 @@ export const App: React.FC = () => {
             activeDocId: dup.id,
           }));
         }}
-        onDeleteDocument={(id) => {
-          if (workspace.documents.length <= 1) return;
-          const remaining = workspace.documents.filter((d) => d.id !== id);
-          setWorkspace((prev) => ({
-            ...prev,
-            documents: remaining,
-            activeDocId: prev.activeDocId === id ? remaining[0].id : prev.activeDocId,
-          }));
-        }}
+        onDeleteDocument={(id) => void handleDeleteDocument(id)}
         onOpenCommandPalette={() => setCommandPaletteOpen(true)}
         onOpenAccount={() => setAccountModalOpen(true)}
         onClose={() => setSidebarOpen(false)}
@@ -639,6 +840,7 @@ export const App: React.FC = () => {
           onSelectTagFilter={setActiveTagFilter}
           onOpenCommandPalette={() => setCommandPaletteOpen(true)}
           onUpdateDocTitle={(title) => updateActiveDocument((doc) => ({ ...doc, title }))}
+          onShare={() => setShareDocId(activeDocument.id)}
         />
 
         <main className="flex-1 w-full h-full relative overflow-hidden">
@@ -735,7 +937,13 @@ export const App: React.FC = () => {
               const restored = sanitizeWorkspace(JSON.parse(String(e.target?.result ?? '')));
               if (!restored) throw new Error('invalid');
               if (window.confirm('Replace all your spaces with the ones in this backup?')) {
-                setWorkspace(restored);
+                // Shared spaces are not part of a backup restore; keep them as they are.
+                setWorkspace((prev) => {
+                  const own = restored.documents.map((d) => (d.id.startsWith('space-') ? { ...d, id: newDocId() } : d));
+                  const documents = [...own, ...prev.documents.filter((d) => d.share)];
+                  const activeDocId = documents.some((d) => d.id === restored.activeDocId) ? restored.activeDocId : documents[0].id;
+                  return { ...restored, documents, activeDocId };
+                });
                 setAccountModalOpen(false);
               }
             } catch {
@@ -749,6 +957,20 @@ export const App: React.FC = () => {
       />
 
       <SetPasswordDialog open={recoveryOpen} onClose={() => setRecoveryOpen(false)} />
+
+      {shareDoc && (
+        <ShareDialog
+          key={shareDoc.id}
+          open
+          doc={shareDoc}
+          user={user}
+          onClose={() => setShareDocId(null)}
+          onAddPerson={handleAddPerson}
+          onRemovePerson={handleRemovePerson}
+          onStopSharing={handleStopSharing}
+          onLeave={handleLeave}
+        />
+      )}
 
       <TemplatesModal
         isOpen={templatesModalOpen}

@@ -58,7 +58,7 @@ export const AccountModal: React.FC<AccountModalProps> = ({
         </div>
       </div>
       <p className="mt-3 text-[13px] leading-relaxed text-ink-500 dark:text-ink-400">
-        Your spaces are private and saved to this account automatically.
+        Your spaces are private unless you share them, and they’re saved to this account automatically.
       </p>
 
       <Section title="Appearance">

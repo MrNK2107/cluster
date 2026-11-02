@@ -2,7 +2,9 @@ import { vi } from 'vitest';
 
 /**
  * In-memory stand-in for the parts of the Supabase client the app uses:
- * auth session / state events and the `workspaces` table (one row per user).
+ * auth session / state events, the `workspaces` table (one row per user),
+ * and shared spaces (`shared_spaces`, `space_members`, `search_users`) with
+ * the same access rules as the database policies.
  */
 export interface FakeSession {
   user: { id: string; email?: string };
@@ -16,7 +18,7 @@ export function createFakeSupabase() {
   const listeners = new Set<AuthCallback>();
   const accounts = new Map<string, { id: string; password: string }>();
   let session: FakeSession | null = null;
-  const failures: { select?: DbError | Error; upsert?: DbError | Error } = {};
+  const failures: { select?: DbError | Error; upsert?: DbError | Error; sharingMissing?: boolean } = {};
 
   const emit = (event: string) => listeners.forEach((cb) => cb(event, session));
 
@@ -56,7 +58,133 @@ export function createFakeSupabase() {
     return { error: null };
   });
 
+  // --- Shared spaces ---------------------------------------------------------
+  type SpaceRow = { id: string; owner_id: string; owner_email: string; doc: unknown; created_at: string };
+  type MemberRow = { space_id: string; user_id: string; email: string };
+  const spaces = new Map<string, SpaceRow>();
+  const members: MemberRow[] = [];
+  const users = new Map<string, { id: string; email: string; name: string | null; avatar_url: string | null }>();
+  let spaceSeq = 0;
+  const me = () => session?.user.id ?? null;
+  const isMember = (sid: string) => members.some((m) => m.space_id === sid && m.user_id === me());
+  const isOwnerOf = (sid: string) => spaces.get(sid)?.owner_id === me();
+  const canSee = (sid: string) => isOwnerOf(sid) || isMember(sid);
+
+  type Filter = [string, unknown];
+  const matches = (row: Record<string, unknown>, filters: Filter[]) => filters.every(([c, v]) => row[c] === v);
+  const pickCols = (row: Record<string, unknown>, cols: string) =>
+    Object.fromEntries(cols.split(',').map((c) => c.trim()).map((c) => [c, structuredClone(row[c])]));
+
+  /** A small chainable query: enough of PostgREST's builder for the app's calls. */
+  function query(table: 'shared_spaces' | 'space_members') {
+    let op: 'select' | 'insert' | 'update' | 'delete' = 'select';
+    let cols = '*';
+    let payload: Record<string, unknown> = {};
+    const filters: Filter[] = [];
+    let returning: string | null = null;
+
+    const run = (): { data: unknown; error: DbError | null } => {
+      if (failures.sharingMissing) {
+        return { data: null, error: { message: `Could not find the table 'public.${table}' in the schema cache`, code: 'PGRST205' } };
+      }
+      const uid = me();
+      if (!uid) return { data: null, error: { message: 'not signed in', code: '42501' } };
+      if (table === 'shared_spaces') {
+        if (op === 'insert') {
+          const id = `00000000-0000-4000-8000-${String(++spaceSeq).padStart(12, '0')}`;
+          const row: SpaceRow = { id, owner_id: uid, owner_email: session?.user.email ?? '', doc: structuredClone(payload.doc), created_at: String(spaceSeq) };
+          spaces.set(id, row);
+          return { data: returning ? [pickCols(row, returning)] : null, error: null };
+        }
+        const visible = [...spaces.values()].filter((r) => canSee(r.id) && matches(r, filters));
+        if (op === 'select') return { data: visible.sort((a, b) => a.created_at.localeCompare(b.created_at)).map((r) => (cols === '*' ? structuredClone(r) : pickCols(r, cols))), error: null };
+        if (op === 'update') {
+          visible.forEach((r) => {
+            if (payload.doc !== undefined) r.doc = structuredClone(payload.doc);
+          });
+          return { data: null, error: null };
+        }
+        visible.filter((r) => isOwnerOf(r.id)).forEach((r) => {
+          spaces.delete(r.id);
+          for (let i = members.length - 1; i >= 0; i--) if (members[i].space_id === r.id) members.splice(i, 1);
+        });
+        return { data: null, error: null };
+      }
+      // space_members
+      if (op === 'insert') {
+        const row = payload as unknown as MemberRow;
+        if (!isOwnerOf(row.space_id) || row.user_id === uid) return { data: null, error: { message: 'new row violates row-level security policy', code: '42501' } };
+        if (members.some((m) => m.space_id === row.space_id && m.user_id === row.user_id)) return { data: null, error: { message: 'duplicate key', code: '23505' } };
+        members.push({ space_id: row.space_id, user_id: row.user_id, email: row.email });
+        return { data: null, error: null };
+      }
+      const visible = members.filter((m) => canSee(m.space_id) && matches(m, filters));
+      if (op === 'select') return { data: visible.map((m) => pickCols(m, cols)), error: null };
+      if (op === 'delete') {
+        visible
+          .filter((m) => isOwnerOf(m.space_id) || m.user_id === uid)
+          .forEach((m) => members.splice(members.indexOf(m), 1));
+        return { data: null, error: null };
+      }
+      return { data: null, error: { message: 'unsupported', code: 'XX000' } };
+    };
+
+    const builder = {
+      select(c = '*') {
+        if (op === 'select') cols = c;
+        else returning = c;
+        return builder;
+      },
+      insert(row: Record<string, unknown>) {
+        op = 'insert';
+        payload = row;
+        return builder;
+      },
+      update(row: Record<string, unknown>) {
+        op = 'update';
+        payload = row;
+        return builder;
+      },
+      delete() {
+        op = 'delete';
+        return builder;
+      },
+      eq(col: string, value: unknown) {
+        filters.push([col, value]);
+        return builder;
+      },
+      order() {
+        return builder;
+      },
+      async single() {
+        const res = run();
+        const rows = res.data as unknown[] | null;
+        return { data: rows?.[0] ?? null, error: res.error };
+      },
+      async maybeSingle() {
+        const res = run();
+        const rows = res.data as unknown[] | null;
+        return { data: rows?.[0] ?? null, error: res.error };
+      },
+      then<R>(resolve: (v: { data: unknown; error: DbError | null }) => R) {
+        return Promise.resolve(run()).then(resolve);
+      },
+    };
+    return builder;
+  }
+
+  const rpc = vi.fn(async (fn: string, args: { q: string }) => {
+    if (fn !== 'search_users') throw new Error(`unexpected rpc ${fn}`);
+    const q = args.q.trim().toLowerCase();
+    if (!me() || q.length < 3) return { data: [], error: null };
+    return {
+      data: [...users.values()].filter((u) => u.id !== me() && u.email.toLowerCase().startsWith(q)).slice(0, 6),
+      error: null,
+    };
+  });
+
   const from = vi.fn((table: string) => {
+    if (table === 'shared_spaces' || table === 'space_members') return query(table);
     if (table !== 'workspaces') throw new Error(`unexpected table ${table}`);
     return {
       select: () => ({
@@ -75,8 +203,14 @@ export function createFakeSupabase() {
   });
 
   return {
-    client: { auth, from },
+    client: { auth, from, rpc },
     rows,
+    spaces,
+    members,
+    /** Accounts that exist and can be found by email search. */
+    addUser(id: string, email: string, name: string | null = null) {
+      users.set(id, { id, email, name, avatar_url: null });
+    },
     accounts,
     upsert,
     failures,

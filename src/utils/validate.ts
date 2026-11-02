@@ -7,6 +7,7 @@ import type {
   Cluster,
   Connection,
   TodoItem,
+  Viewport,
   WorkspaceData,
 } from '../types';
 
@@ -25,6 +26,8 @@ const SAFE_PROTOCOLS = new Set(['http:', 'https:', 'mailto:', 'tel:']);
 const MAX_TEXT = 20_000;
 const MAX_TITLE = 500;
 const HEX_COLOR = /^#[0-9a-f]{3,8}$/i;
+/** Id a shared space goes by in each person's workspace. */
+const SHARED_DOC_ID = /^space-[0-9a-f-]{36}$/;
 
 type Dict = Record<string, unknown>;
 
@@ -161,7 +164,7 @@ export function sanitizeDocument(input: unknown): BoardDocument | null {
         .map((c) => sanitizeConnection(c, knownIds))
         .filter((c): c is Connection => c !== null)
     : [];
-  const vp = isDict(input.viewport) ? input.viewport : {};
+  const vp = input.viewport;
 
   return {
     id,
@@ -174,28 +177,45 @@ export function sanitizeDocument(input: unknown): BoardDocument | null {
     clusters,
     cards,
     connections,
-    viewport: {
-      x: num(vp.x, 80),
-      y: num(vp.y, 80),
-      zoom: Math.min(2.5, Math.max(0.3, num(vp.zoom, 1))),
-    },
+    viewport: sanitizeViewport(vp),
   };
 }
 
-export function sanitizeWorkspace(input: unknown): WorkspaceData | null {
+function sanitizeViewport(v: unknown): Viewport {
+  const vp = isDict(v) ? v : {};
+  return {
+    x: num(vp.x, 80),
+    y: num(vp.y, 80),
+    zoom: Math.min(2.5, Math.max(0.3, num(vp.zoom, 1))),
+  };
+}
+
+/**
+ * `allowEmpty` is for the account copy, which may hold no spaces of its own
+ * when every space the person has is shared.
+ */
+export function sanitizeWorkspace(input: unknown, { allowEmpty = false } = {}): WorkspaceData | null {
   if (!isDict(input) || !Array.isArray(input.documents)) return null;
   const documents = input.documents
     .map(sanitizeDocument)
     .filter((d): d is BoardDocument => d !== null);
-  if (documents.length === 0) return null;
+  if (documents.length === 0 && !allowEmpty) return null;
   const activeDocId =
-    typeof input.activeDocId === 'string' && documents.some((d) => d.id === input.activeDocId)
-      ? input.activeDocId
-      : documents[0].id;
+    typeof input.activeDocId === 'string' &&
+    (documents.some((d) => d.id === input.activeDocId) || (allowEmpty && SHARED_DOC_ID.test(input.activeDocId)))
+      ? str(input.activeDocId)
+      : (documents[0]?.id ?? '');
+  const sharedViewports: Record<string, Viewport> = {};
+  if (isDict(input.sharedViewports)) {
+    for (const [id, vp] of Object.entries(input.sharedViewports).slice(0, 500)) {
+      if (SHARED_DOC_ID.test(id)) sharedViewports[id] = sanitizeViewport(vp);
+    }
+  }
   return {
     version: num(input.version, 1),
     activeDocId,
     documents,
     theme: input.theme === 'light' || input.theme === 'system' ? input.theme : 'dark',
+    ...(Object.keys(sharedViewports).length ? { sharedViewports } : {}),
   };
 }
