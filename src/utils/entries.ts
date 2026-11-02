@@ -10,6 +10,8 @@ const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', '
 
 /** "⏰ Nov 14 · Name", "Nov 14 - Name", "Dec 3, 2026 | Name" */
 const DATE_PREFIX = /^\s*(?:[^\p{L}\p{N}\s]+\s*)?([A-Za-z]{3,9})\.?\s+(\d{1,2})(?:,?\s+(\d{4}))?\s*[·•|–—-]\s*/u;
+/** "⏰ rolling · Name", "⏰ TBA · Name": a word in place of the date. */
+const WORD_PREFIX = /^\s*[^\p{L}\p{N}\s]+\s*([\p{L}][\p{L}\p{N}-]{1,11})\s*·\s*/u;
 const NOTE_LINE = /^\s*(?:ℹ️|ℹ|💡|📝|🗒️)/u;
 
 export const isNoteLine = (todo: TodoItem) => NOTE_LINE.test(todo.text);
@@ -24,8 +26,23 @@ export function entryNotes(card: CardData): string[] {
 
 /** The card title without a leading date, which the table shows in its own column. */
 export function entryName(card: CardData): string {
-  const stripped = card.title.replace(DATE_PREFIX, '').trim();
-  return stripped && parseTitleDate(card.title) !== null ? stripped : card.title;
+  if (parseTitleDate(card.title) !== null) {
+    const stripped = card.title.replace(DATE_PREFIX, '').trim();
+    if (stripped) return stripped;
+  }
+  const m = WORD_PREFIX.exec(card.title);
+  if (m) {
+    const stripped = card.title.slice(m[0].length).trim();
+    if (stripped) return stripped;
+  }
+  return card.title;
+}
+
+/** A word used instead of a date in the title ("Rolling"), when there is no date. */
+export function entryDateWord(card: CardData): string | null {
+  if (parseTitleDate(card.title) !== null) return null;
+  const m = WORD_PREFIX.exec(card.title);
+  return m ? m[1].charAt(0).toUpperCase() + m[1].slice(1) : null;
 }
 
 function parseTitleDate(title: string, now = new Date()): number | null {

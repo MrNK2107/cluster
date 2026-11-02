@@ -6,6 +6,7 @@ import { normalizeBookmarkUrl } from '../utils/validate';
 import {
   dateUrgency,
   entryDate,
+  entryDateWord,
   entryLink,
   entryName,
   entryNotes,
@@ -105,6 +106,7 @@ const Row: React.FC<{
   const people = doc.share?.people ?? [];
   const shared = people.length > 1;
   const date = entryDate(card);
+  const dateWord = date === null ? entryDateWord(card) : null;
   const urgency = dateUrgency(card, date);
   const steps = entrySteps(card);
   const done = steps.filter((s) => s.completed).length;
@@ -126,11 +128,17 @@ const Row: React.FC<{
         <div
           className={cn(
             'order-2 md:order-none col-span-2 md:col-span-1 text-[12.5px] md:text-[13px] font-semibold tabular-nums md:pt-0.5',
-            date === null && 'max-md:hidden',
+            date === null && !dateWord && 'max-md:hidden',
             urgency === 'overdue' ? 'text-rose-600 dark:text-rose-400' : urgency === 'soon' ? 'text-amber-600 dark:text-amber-400' : 'text-ink-500 dark:text-ink-400',
           )}
         >
-          {date !== null ? formatEntryDate(date) : <span className="text-ink-300 dark:text-ink-600">—</span>}
+          {date !== null ? (
+            formatEntryDate(date)
+          ) : dateWord ? (
+            <span className="font-medium text-ink-500 dark:text-ink-400">{dateWord}</span>
+          ) : (
+            <span className="text-ink-300 dark:text-ink-600">—</span>
+          )}
           {urgency === 'overdue' && <span className="ml-1 font-medium md:block md:ml-0 text-[11px]">Past</span>}
         </div>
 

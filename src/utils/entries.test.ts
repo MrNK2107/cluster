@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CardData } from '../types';
-import { dateUrgency, entryDate, entryLink, entryName, entryNotes, entrySteps, formatEntryDate } from './entries';
+import { dateUrgency, entryDate, entryDateWord, entryLink, entryName, entryNotes, entrySteps, formatEntryDate } from './entries';
 import { sanitizeDocument } from './validate';
 
 const card = (extra: Partial<CardData>): CardData => ({
@@ -23,6 +23,9 @@ describe('entries', () => {
     expect(entryName(card({ title: '⏰ Nov 14 · Capture The Flag | Techkriti ’27' }))).toBe('Capture The Flag | Techkriti ’27');
     expect(entryName(card({ title: 'Plain name' }))).toBe('Plain name');
     expect(entryName(card({ title: 'Kotlin - the language' }))).toBe('Kotlin - the language');
+    expect(entryName(card({ title: '⏰ rolling · TCS CodeVita Season 14' }))).toBe('TCS CodeVita Season 14');
+    expect(entryDateWord(card({ title: '⏰ rolling · TCS CodeVita Season 14' }))).toBe('Rolling');
+    expect(entryDateWord(card({ title: '⏰ Nov 14 · X' }))).toBeNull();
   });
 
   it('dates an entry by its earliest open due step, else its title', () => {
