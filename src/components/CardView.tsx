@@ -12,6 +12,8 @@ import {
   CornerDownLeft,
   Tag,
   X,
+  ExternalLink,
+  ThumbsDown,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import type { CardData, CardColor, TodoItem, BookmarkItem, Cluster } from '../types';
@@ -19,6 +21,7 @@ import { COLOR_MAP, COLOR_ORDER, colorTheme } from '../theme/colors';
 import { safeHref, normalizeBookmarkUrl } from '../utils/validate';
 import { IconButton, MenuDivider, MenuItem, MenuLabel, MenuPanel, useDismiss } from './ui';
 import { cn } from '../utils/cn';
+import { linkHost } from '../utils/entries';
 
 /* --------------------------------------------------------------------------
  * Shared card logic, used by both the canvas card and the list view.
@@ -131,6 +134,15 @@ interface CardViewProps {
   onDelete: () => void;
   onDuplicate: () => void;
   onStartDrag: (e: React.MouseEvent, cardId: string) => void;
+  /** Set in a space shared with others: deleting becomes a vote. */
+  voting?: CardVoting;
+}
+
+export interface CardVoting {
+  myId: string;
+  people: number;
+  onAgree: (cardId: string) => void;
+  onKeep: (cardId: string) => void;
 }
 
 const stop = {
@@ -149,7 +161,26 @@ export const CardView: React.FC<CardViewProps> = ({
   onDelete,
   onDuplicate,
   onStartDrag,
+  voting,
 }) => {
+  const [mainLinkDraft, setMainLinkDraft] = useState<string | null>(null);
+  const [mainLinkError, setMainLinkError] = useState(false);
+  const commitMainLink = () => {
+    if (mainLinkDraft === null) return;
+    if (!mainLinkDraft.trim()) {
+      onUpdate({ link: undefined });
+      setMainLinkDraft(null);
+      return;
+    }
+    const url = normalizeBookmarkUrl(mainLinkDraft);
+    if (!url) {
+      setMainLinkError(true);
+      return;
+    }
+    onUpdate({ link: url });
+    setMainLinkDraft(null);
+    setMainLinkError(false);
+  };
   const [popover, setPopover] = useState<'color' | 'menu' | null>(null);
   const closePopover = useCallback(() => setPopover(null), []);
   const popRef = useDismiss(popover !== null, closePopover);
@@ -221,14 +252,21 @@ export const CardView: React.FC<CardViewProps> = ({
         className="flex items-center gap-2 pl-4 pr-2 pt-3 pb-1 cursor-grab active:cursor-grabbing select-none"
       >
         {!isSticky && <span className={cn('w-2.5 h-2.5 shrink-0 rounded-full', theme.swatch)} aria-hidden="true" />}
-        <input
+        <textarea
           {...stop}
+          rows={1}
           value={card.title}
-          onChange={(e) => onUpdate({ title: e.target.value })}
+          onChange={(e) => onUpdate({ title: e.target.value.replace(/\n/g, ' ') })}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              (e.target as HTMLTextAreaElement).blur();
+            }
+          }}
           placeholder="Untitled"
           aria-label="Card title"
           className={cn(
-            'min-w-0 flex-1 bg-transparent outline-none rounded-md px-1 -mx-1 py-0.5 truncate font-display font-bold tracking-tight text-ink-950 dark:text-white placeholder:text-ink-400 focus:bg-ink-900/[0.05] dark:focus:bg-white/[0.06]',
+            'min-w-0 flex-1 resize-none [field-sizing:content] bg-transparent outline-none rounded-md px-1 -mx-1 py-0.5 leading-snug break-words font-display font-bold tracking-tight text-ink-950 dark:text-white placeholder:text-ink-400 focus:bg-ink-900/[0.05] dark:focus:bg-white/[0.06]',
             isSticky ? 'text-[13px] opacity-70' : 'text-[15px]',
           )}
         />
@@ -236,7 +274,7 @@ export const CardView: React.FC<CardViewProps> = ({
           ref={popRef}
           {...stop}
           className={cn(
-            'relative flex items-center transition-opacity',
+            'relative flex items-center self-start transition-opacity',
             isSelected || popover ? 'opacity-100' : 'opacity-0 group-hover/card:opacity-100 focus-within:opacity-100',
           )}
         >
@@ -264,6 +302,15 @@ export const CardView: React.FC<CardViewProps> = ({
 
           {popover === 'menu' && (
             <MenuPanel className="right-0 top-full mt-1.5 w-56 max-h-80 overflow-y-auto">
+              <MenuItem
+                icon={<Link2 className="w-4 h-4" />}
+                onClick={() => {
+                  setMainLinkDraft(card.link ?? '');
+                  setPopover(null);
+                }}
+              >
+                {card.link ? 'Edit link' : 'Add link'}
+              </MenuItem>
               <MenuItem
                 icon={<Copy className="w-4 h-4" />}
                 onClick={() => {
@@ -303,22 +350,91 @@ export const CardView: React.FC<CardViewProps> = ({
                   ))}
                 </>
               )}
-              <MenuDivider />
-              <MenuItem
-                tone="danger"
-                icon={<Trash2 className="w-4 h-4" />}
-                onClick={() => {
-                  onDelete();
-                  setPopover(null);
-                }}
-                hint={<span className="text-[11px] opacity-60">Del</span>}
-              >
-                Delete card
-              </MenuItem>
+              {!card.rejection && (
+                <>
+                  <MenuDivider />
+                  <MenuItem
+                    tone="danger"
+                    icon={voting ? <ThumbsDown className="w-4 h-4" /> : <Trash2 className="w-4 h-4" />}
+                    onClick={() => {
+                      onDelete();
+                      setPopover(null);
+                    }}
+                    hint={<span className="text-[11px] opacity-60">Del</span>}
+                  >
+                    {voting ? 'Propose rejecting' : 'Delete card'}
+                  </MenuItem>
+                </>
+              )}
             </MenuPanel>
           )}
         </div>
       </header>
+
+      {/* Pending rejection in a shared space */}
+      {card.rejection && voting && (
+        <div {...stop} className="mx-3 mt-1 mb-1 rounded-xl bg-rose-50 dark:bg-rose-500/10 px-3 py-2">
+          <p className="text-[12px] leading-snug text-rose-700 dark:text-rose-300">
+            <strong className="font-semibold">{card.rejection.byId === voting.myId ? 'You' : card.rejection.byEmail || 'Someone'}</strong>
+            {` proposed rejecting this · ${card.rejection.approvals.length} of ${voting.people} agreed`}
+          </p>
+          <div className="mt-1.5 flex gap-1.5">
+            {!card.rejection.approvals.includes(voting.myId) && (
+              <button
+                type="button"
+                onClick={() => voting.onAgree(card.id)}
+                className="h-7 px-2.5 rounded-lg text-[12px] font-semibold bg-rose-600 text-white hover:bg-rose-700"
+              >
+                Agree to reject
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => voting.onKeep(card.id)}
+              className="h-7 px-2.5 rounded-lg text-[12px] font-semibold ring-1 ring-inset ring-rose-300 text-rose-700 hover:bg-rose-100 dark:ring-rose-500/40 dark:text-rose-300"
+            >
+              {card.rejection.byId === voting.myId ? 'Cancel' : 'Keep it'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Main link */}
+      {mainLinkDraft !== null ? (
+        <div {...stop} className="px-4 pt-1">
+          <input
+            autoFocus
+            value={mainLinkDraft}
+            onChange={(e) => setMainLinkDraft(e.target.value)}
+            onBlur={commitMainLink}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') commitMainLink();
+              if (e.key === 'Escape') setMainLinkDraft(null);
+            }}
+            placeholder="Paste a link"
+            aria-label="Link"
+            className={cn(
+              'w-full h-8 px-2.5 rounded-lg text-[12.5px] bg-transparent outline-none ring-1 text-ink-800 dark:text-ink-100',
+              mainLinkError ? 'ring-rose-400' : 'ring-brand-500',
+            )}
+          />
+        </div>
+      ) : (
+        card.link && (
+          <div {...stop} className="px-4 pt-1">
+            <a
+              href={card.link}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={card.link}
+              className="inline-flex max-w-full items-center gap-1.5 text-[12.5px] font-semibold text-brand-700 hover:underline dark:text-brand-300"
+            >
+              <ExternalLink className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate">{linkHost(card.link)}</span>
+            </a>
+          </div>
+        )
+      )}
 
       {/* Tags */}
       {(card.tags.length > 0 || tagDraft !== null) && (

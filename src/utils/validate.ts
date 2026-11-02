@@ -6,6 +6,7 @@ import type {
   CardType,
   Cluster,
   Connection,
+  Rejection,
   TodoItem,
   Viewport,
   WorkspaceData,
@@ -82,6 +83,17 @@ function sanitizeBookmark(v: unknown, idx: number): BookmarkItem | null {
   return { id: str(v.id) || `b-${idx}`, title: str(v.title) || url, url };
 }
 
+function sanitizeRejection(v: unknown): Rejection | null {
+  if (!isDict(v)) return null;
+  const id = str(v.id, 64);
+  const byId = str(v.byId, 64);
+  if (!id || !byId) return null;
+  const approvals = Array.isArray(v.approvals)
+    ? [...new Set(v.approvals.filter((a): a is string => typeof a === 'string').map((a) => a.slice(0, 64)))].slice(0, 200)
+    : [];
+  return { id, byId, byEmail: str(v.byEmail, 320), at: num(v.at, Date.now()), approvals };
+}
+
 function sanitizeCard(v: unknown, idx: number): CardData | null {
   if (!isDict(v)) return null;
   const id = str(v.id);
@@ -111,6 +123,12 @@ function sanitizeCard(v: unknown, idx: number): CardData | null {
   if (Array.isArray(v.bookmarks)) {
     card.bookmarks = v.bookmarks.map(sanitizeBookmark).filter((b): b is BookmarkItem => b !== null);
   }
+  if (typeof v.link === 'string' && v.link) {
+    const link = safeHref(v.link);
+    if (link !== '#') card.link = link;
+  }
+  const rejection = sanitizeRejection(v.rejection);
+  if (rejection) card.rejection = rejection;
   return card;
 }
 

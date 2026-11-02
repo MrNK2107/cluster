@@ -42,9 +42,23 @@ export interface CardData {
   counterValue?: number;
   counterLabel?: string;
   bookmarks?: BookmarkItem[];
-  
+
+  /** The page this entry is about (registration, job post, docs…). */
+  link?: string;
+  /** In a shared space, a proposal to delete this card that everyone must agree to. */
+  rejection?: Rejection;
+
   createdAt: number;
   updatedAt: number;
+}
+
+export interface Rejection {
+  id: string;
+  byId: string;
+  byEmail: string;
+  at: number;
+  /** User ids of everyone who agreed, the proposer included. */
+  approvals: string[];
 }
 
 export interface Cluster {
@@ -95,6 +109,13 @@ export interface ShareInfo {
   ownerId: string;
   ownerEmail: string;
   isOwner: boolean;
+  /** Everyone with access, owner first. */
+  people: SpacePerson[];
+}
+
+export interface SpacePerson {
+  userId: string;
+  email: string;
 }
 
 export interface WorkspaceData {

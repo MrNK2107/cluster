@@ -20,7 +20,7 @@ interface CommandPaletteProps {
   documents: BoardDocument[];
   activeDocument: BoardDocument;
   theme: 'dark' | 'light';
-  viewMode: 'canvas' | 'feed';
+  viewMode: 'canvas' | 'feed' | 'table';
   onClose: () => void;
   onSelectDocument: (docId: string) => void;
   onAddCard: (type: CardType) => void;

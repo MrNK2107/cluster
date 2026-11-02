@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { BoardDocument, CardData, WorkspaceData } from '../types';
-import { mergeDocs, mergeWorkspace, splitWorkspace } from './workspaceSync';
+import { mergeDocs, mergeWorkspace, rejectionAgreed, splitWorkspace } from './workspaceSync';
 
 const card = (id: string, title: string, extra: Partial<CardData> = {}): CardData => ({
   id,
@@ -31,7 +31,7 @@ const doc = (id: string, cards: CardData[] = [], extra: Partial<BoardDocument> =
 });
 
 const SPACE = '00000000-0000-4000-8000-000000000001';
-const share = { spaceId: SPACE, ownerId: 'o', ownerEmail: 'o@x.test', isOwner: false };
+const share = { spaceId: SPACE, ownerId: 'o', ownerEmail: 'o@x.test', isOwner: false, people: [{ userId: 'o', email: 'o@x.test' }] };
 
 describe('splitWorkspace / mergeWorkspace', () => {
   it('keeps shared spaces out of the account row but remembers where I was looking', () => {
@@ -100,5 +100,23 @@ describe('mergeDocs', () => {
     const withConn = { ...base, connections: [{ id: 'x', fromId: 'a', toId: 'b' }] };
     const theirs = { ...withConn, cards: [card('a', 'A')] };
     expect(mergeDocs(withConn, withConn, theirs).connections).toEqual([]);
+  });
+});
+
+describe('rejection votes', () => {
+  const rej = (approvals: string[]) => ({ id: 'r1', byId: 'u1', byEmail: 'a@x', at: 1, approvals });
+
+  it('counts two people agreeing at the same time', () => {
+    const base = doc('d', [card('a', 'A', { rejection: rej(['u1']) })]);
+    const mine = doc('d', [card('a', 'A', { rejection: rej(['u1', 'u2']) })]);
+    const theirs = doc('d', [card('a', 'A', { rejection: rej(['u1', 'u3']) })]);
+    expect(mergeDocs(base, mine, theirs).cards[0].rejection?.approvals.sort()).toEqual(['u1', 'u2', 'u3']);
+  });
+
+  it('is agreed only when everyone with access agreed', () => {
+    const people = [{ userId: 'u1' }, { userId: 'u2' }];
+    expect(rejectionAgreed(card('a', 'A', { rejection: rej(['u1']) }), people)).toBe(false);
+    expect(rejectionAgreed(card('a', 'A', { rejection: rej(['u2', 'u1']) }), people)).toBe(true);
+    expect(rejectionAgreed(card('a', 'A'), people)).toBe(false);
   });
 });

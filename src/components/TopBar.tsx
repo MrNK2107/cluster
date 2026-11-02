@@ -1,7 +1,7 @@
 import React, { useCallback, useState } from 'react';
-import { Moon, Sun, PanelLeftOpen, LayoutGrid, Rows3, Search, Hash, X, Check, CloudOff, Loader2, Users } from 'lucide-react';
+import { Moon, Sun, PanelLeftOpen, LayoutGrid, Rows3, Search, Hash, X, Check, CloudOff, Loader2, Users, Table2 } from 'lucide-react';
 import type { BoardDocument } from '../types';
-import type { SaveState } from '../App';
+import type { SaveState, ViewMode } from '../App';
 import { IconButton, MenuItem, MenuLabel, MenuPanel, useDismiss } from './ui';
 import { stripLeadingEmoji } from './Sidebar';
 import { cn } from '../utils/cn';
@@ -9,14 +9,14 @@ import { cn } from '../utils/cn';
 interface TopBarProps {
   document: BoardDocument;
   theme: 'dark' | 'light';
-  viewMode: 'canvas' | 'feed';
+  viewMode: ViewMode;
   saveState: SaveState;
   sidebarOpen: boolean;
   activeTagFilter: string | null;
   allTags: string[];
   onToggleSidebar: () => void;
   onToggleTheme: () => void;
-  onSetViewMode: (mode: 'canvas' | 'feed') => void;
+  onSetViewMode: (mode: ViewMode) => void;
   onSelectTagFilter: (tag: string | null) => void;
   onOpenCommandPalette: () => void;
   onUpdateDocTitle: (title: string) => void;
@@ -44,11 +44,12 @@ const SaveIndicator: React.FC<{ state: SaveState }> = ({ state }) => (
   </span>
 );
 
-const ViewSwitch: React.FC<{ value: 'canvas' | 'feed'; onChange: (v: 'canvas' | 'feed') => void }> = ({ value, onChange }) => (
+const ViewSwitch: React.FC<{ value: ViewMode; onChange: (v: ViewMode) => void }> = ({ value, onChange }) => (
   <div role="radiogroup" aria-label="View" className="flex items-center p-1 rounded-xl bg-ink-100 dark:bg-ink-800/80">
     {(
       [
         ['canvas', 'Canvas', LayoutGrid],
+        ['table', 'Table', Table2],
         ['feed', 'List', Rows3],
       ] as const
     ).map(([mode, label, Icon]) => (

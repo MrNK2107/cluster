@@ -408,3 +408,85 @@ describe('sharing a space', () => {
 });
 
 type BoardDocumentLike = { title: string };
+
+describe('table view and rejecting entries', () => {
+  const openTable = () => fireEvent.click(screen.getByRole('radio', { name: 'Table' }));
+  const shared = () => [...fake.spaces.values()][0].doc as WorkspaceData['documents'][number];
+
+  it('deletes straight away in a space that is not shared', async () => {
+    await signedInApp();
+    openTable();
+    expect(screen.getByRole('list', { name: 'Entries' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Check-in Desk Priority' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm: delete Check-in Desk Priority' }));
+    await waitFor(
+      () => expect(storedRow('u1').documents[0].cards.some((c) => c.title === 'Check-in Desk Priority')).toBe(false),
+      SAVE_WAIT,
+    );
+  });
+
+  it('opens big spaces as a table', async () => {
+    const ws = createEditedWorkspace();
+    ws.documents[0].cards = Array.from({ length: 31 }, (_, i) => ({
+      id: `c${i}`,
+      type: 'todo' as const,
+      title: `⏰ Nov ${i % 28 + 1} · Hackathon ${i}`,
+      x: 0,
+      y: 0,
+      color: 'default' as const,
+      tags: [],
+      clusterId: null,
+      createdAt: 1,
+      updatedAt: 1,
+    }));
+    ws.documents[0].connections = [];
+    await signedInApp(ws);
+    expect(screen.getByRole('list', { name: 'Entries' })).toBeTruthy();
+    expect(screen.getByText('Hackathon 30')).toBeTruthy();
+  });
+
+  it('in a shared space, deletes only after everyone agrees', async () => {
+    fake.addUser('u2', 'teammate@example.test');
+    await signedInApp();
+    fireEvent.click(screen.getByTitle('Share this space'));
+    fireEvent.change(screen.getByPlaceholderText('Search by email'), { target: { value: 'team' } });
+    fireEvent.click(await screen.findByRole('button', { name: 'Add teammate@example.test' }));
+    await waitFor(() => expect(fake.members).toHaveLength(1));
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+
+    openTable();
+    fireEvent.click(screen.getByRole('button', { name: 'Propose rejecting Check-in Desk Priority' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm: propose rejecting Check-in Desk Priority' }));
+    expect(await screen.findByText(/proposed rejecting this · 1 of 2 agreed/)).toBeTruthy();
+    await waitFor(() => {
+      const card = shared().cards.find((c) => c.title === 'Check-in Desk Priority');
+      expect(card?.rejection?.approvals).toEqual(['u1']);
+    }, SAVE_WAIT);
+
+    await act(async () => {
+      fake.signIn('u2', 'teammate@example.test');
+    });
+    fireEvent.click(await screen.findByText(/Property & Hostel Operations/));
+    fireEvent.click(await screen.findByRole('button', { name: /Agree to reject/ }));
+    await waitFor(() => expect(shared().cards.some((c) => c.title === 'Check-in Desk Priority')).toBe(false), SAVE_WAIT);
+  });
+
+  it('keeps the entry when someone says keep it', async () => {
+    fake.addUser('u2', 'teammate@example.test');
+    await signedInApp();
+    fireEvent.click(screen.getByTitle('Share this space'));
+    fireEvent.change(screen.getByPlaceholderText('Search by email'), { target: { value: 'team' } });
+    fireEvent.click(await screen.findByRole('button', { name: 'Add teammate@example.test' }));
+    await waitFor(() => expect(fake.members).toHaveLength(1));
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    openTable();
+    fireEvent.click(screen.getByRole('button', { name: 'Propose rejecting Check-in Desk Priority' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm: propose rejecting Check-in Desk Priority' }));
+    fireEvent.click(await screen.findByRole('button', { name: /Cancel/ }));
+    await waitFor(() => {
+      const card = shared().cards.find((c) => c.title === 'Check-in Desk Priority');
+      expect(card).toBeTruthy();
+      expect(card?.rejection).toBeUndefined();
+    }, SAVE_WAIT);
+  });
+});

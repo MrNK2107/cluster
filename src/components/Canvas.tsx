@@ -1,6 +1,6 @@
 import React, { useRef, useState, useEffect } from 'react';
 import type { CardData, Cluster, Connection, CardType } from '../types';
-import { CardView } from './CardView';
+import { CardView, type CardVoting } from './CardView';
 import { ClusterView } from './ClusterView';
 import { ConnectionLines } from './ConnectionLines';
 
@@ -18,6 +18,8 @@ interface CanvasProps {
   onDeleteCluster: (id: string) => void;
   onAddCardInsideCluster: (clusterId: string, type: CardType) => void;
   onDeleteConnection: (id: string) => void;
+  /** Set in a space shared with others: deleting a card becomes a vote. */
+  voting?: CardVoting;
   onCreateAt?: (type: CardType, x: number, y: number) => void;
 }
 
@@ -30,6 +32,7 @@ export const Canvas: React.FC<CanvasProps> = ({
   onUpdateViewport,
   onUpdateCard,
   onDeleteCard,
+  voting,
   onDuplicateCard,
   onUpdateCluster,
   onDeleteCluster,
@@ -302,6 +305,7 @@ export const Canvas: React.FC<CanvasProps> = ({
           onDelete={() => onDeleteCard(card.id)}
           onDuplicate={() => onDuplicateCard(card.id)}
           onStartDrag={handleStartCardDrag}
+          voting={voting}
         />
       </div>
     );

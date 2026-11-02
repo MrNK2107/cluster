@@ -1,4 +1,4 @@
-import type { BoardDocument, ShareInfo } from '../types';
+import type { BoardDocument, ShareInfo, SpacePerson } from '../types';
 import { describeError, getSupabaseClient } from './supabase';
 import { sanitizeDocument } from './validate';
 
@@ -67,13 +67,35 @@ export async function fetchSharedSpaces(): Promise<{ data: SharedSpace[]; error?
       .select('id, owner_id, owner_email, doc')
       .order('created_at', { ascending: true });
     if (error) return isMissingTable(error) ? { data: [] } : { data: [], error: describeError(error) };
+    const rows = (data ?? []) as { id: string; owner_id: string; owner_email: string | null; doc: unknown }[];
+
+    // Everyone in each space, so a rejection knows how many must agree.
+    const membersBySpace = new Map<string, SpacePerson[]>();
+    if (rows.length) {
+      const res = await client.from('space_members').select('space_id, user_id, email');
+      if (res.error) return { data: [], error: describeError(res.error) };
+      for (const m of (res.data ?? []) as { space_id: string; user_id: string; email: string }[]) {
+        const list = membersBySpace.get(m.space_id) ?? [];
+        list.push({ userId: m.user_id, email: m.email });
+        membersBySpace.set(m.space_id, list);
+      }
+    }
+
     const spaces: SharedSpace[] = [];
-    for (const row of (data ?? []) as { id: string; owner_id: string; owner_email: string | null; doc: unknown }[]) {
+    for (const row of rows) {
       const doc = sanitizeDocument(row.doc);
       if (!doc) continue;
+      const ownerEmail = row.owner_email ?? '';
+      const members = (membersBySpace.get(row.id) ?? []).sort((a, b) => a.email.localeCompare(b.email));
       spaces.push({
         doc: { ...doc, id: sharedDocId(row.id) },
-        share: { spaceId: row.id, ownerId: row.owner_id, ownerEmail: row.owner_email ?? '', isOwner: row.owner_id === me },
+        share: {
+          spaceId: row.id,
+          ownerId: row.owner_id,
+          ownerEmail,
+          isOwner: row.owner_id === me,
+          people: [{ userId: row.owner_id, email: ownerEmail }, ...members],
+        },
       });
     }
     return { data: spaces };

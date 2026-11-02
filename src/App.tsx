@@ -5,7 +5,8 @@ import type {
   CardData,
   Cluster,
   CardType,
-  CardColor
+  CardColor,
+  SpacePerson,
 } from './types';
 import {
   INITIAL_DOCUMENTS,
@@ -38,7 +39,7 @@ import {
   sharedPayload,
   type Person,
 } from './utils/sharing';
-import { mergeDocs, mergeWorkspace, splitWorkspace } from './utils/workspaceSync';
+import { mergeDocs, mergeWorkspace, rejectionAgreed, splitWorkspace } from './utils/workspaceSync';
 import { Sidebar } from './components/Sidebar';
 import { TopBar } from './components/TopBar';
 import { Canvas } from './components/Canvas';
@@ -51,9 +52,26 @@ import { AuthScreen, WorkspaceLoading } from './components/AuthScreen';
 import { CommandPalette } from './components/CommandPalette';
 import { MiniMap } from './components/MiniMap';
 import { ShareDialog } from './components/ShareDialog';
+import { TableView } from './components/TableView';
 import { Plus } from 'lucide-react';
 
 export type SaveState = 'saved' | 'saving' | 'error';
+
+export type ViewMode = 'canvas' | 'feed' | 'table';
+const VIEW_PREFS_KEY = 'clustr_view_by_space';
+/** Spaces with more cards than this open in the table view by default. */
+const TABLE_BY_DEFAULT_ABOVE = 30;
+
+function readViewPrefs(): Record<string, ViewMode> {
+  try {
+    const raw = JSON.parse(localStorage.getItem(VIEW_PREFS_KEY) ?? '{}');
+    const out: Record<string, ViewMode> = {};
+    for (const [k, v] of Object.entries(raw ?? {})) if (v === 'canvas' || v === 'feed' || v === 'table') out[k] = v;
+    return out;
+  } catch {
+    return {};
+  }
+}
 
 /** Debounce before an edit is written to the database. */
 const SAVE_DELAY_MS = 600;
@@ -113,9 +131,8 @@ const isTyping = (target: EventTarget | null) =>
 export const App: React.FC = () => {
   const [workspace, setWorkspace] = useState<WorkspaceData>(createStarterWorkspace);
 
-  const [viewMode, setViewMode] = useState<'canvas' | 'feed'>(() => {
-    return typeof window !== 'undefined' && window.innerWidth < 768 ? 'feed' : 'canvas';
-  });
+  // The view each space was last shown in, remembered in this browser.
+  const [viewPrefs, setViewPrefs] = useState<Record<string, ViewMode>>(readViewPrefs);
 
   const [sidebarOpen, setSidebarOpen] = useState(() => {
     return typeof window !== 'undefined' && window.innerWidth >= 768;
@@ -435,6 +452,26 @@ export const App: React.FC = () => {
     );
   }, [workspace.documents, workspace.activeDocId]);
 
+  // Spaces with many entries open as a table unless the person chose otherwise.
+  const viewMode: ViewMode =
+    viewPrefs[activeDocument.id] ??
+    (activeDocument.cards.length > TABLE_BY_DEFAULT_ABOVE
+      ? 'table'
+      : typeof window !== 'undefined' && window.innerWidth < 768
+        ? 'feed'
+        : 'canvas');
+  const setViewMode = (mode: ViewMode) => {
+    setViewPrefs((prev) => {
+      const next = { ...prev, [activeDocument.id]: mode };
+      try {
+        localStorage.setItem(VIEW_PREFS_KEY, JSON.stringify(next));
+      } catch {
+        // Not remembered; still applies now.
+      }
+      return next;
+    });
+  };
+
   // Unique tags
   const allTags = useMemo(() => {
     const set = new Set<string>();
@@ -531,11 +568,61 @@ export const App: React.FC = () => {
     }));
   };
 
+  const removeCard = (doc: BoardDocument, id: string): BoardDocument => ({
+    ...doc,
+    cards: doc.cards.filter((c) => c.id !== id),
+    connections: doc.connections.filter((conn) => conn.fromId !== id && conn.toId !== id),
+  });
+
+  /** People who must agree before a card in the open space is deleted. */
+  const votingPeople = (doc: BoardDocument) => (doc.share && doc.share.people.length > 1 ? doc.share.people : null);
+
+  /**
+   * Deletes a card. In a space shared with others it instead proposes
+   * rejecting it; the card goes once everyone has agreed.
+   */
   const handleDeleteCard = (id: string) => {
+    if (!votingPeople(activeDocument) || !user) {
+      updateActiveDocument((doc) => removeCard(doc, id));
+      return;
+    }
+    const me = user;
+    updateActiveDocument((doc) => {
+      const card = doc.cards.find((c) => c.id === id);
+      if (!card || card.rejection) return doc;
+      const rejection = {
+        id: `rj-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        byId: me.id,
+        byEmail: me.email ?? '',
+        at: Date.now(),
+        approvals: [me.id],
+      };
+      return { ...doc, cards: doc.cards.map((c) => (c.id === id ? { ...c, rejection, updatedAt: Date.now() } : c)) };
+    });
+  };
+
+  const handleAgreeReject = (id: string) => {
+    if (!user) return;
+    const me = user.id;
+    updateActiveDocument((doc) => {
+      const card = doc.cards.find((c) => c.id === id);
+      if (!card?.rejection) return doc;
+      const agreed = { ...card, rejection: { ...card.rejection, approvals: [...new Set([...card.rejection.approvals, me])] } };
+      const people = votingPeople(doc);
+      if (!people || rejectionAgreed(agreed, people)) return removeCard(doc, id);
+      return { ...doc, cards: doc.cards.map((c) => (c.id === id ? { ...agreed, updatedAt: Date.now() } : c)) };
+    });
+  };
+
+  /** Declines a proposal (or the proposer withdraws it): the card stays. */
+  const handleKeepCard = (id: string) => {
     updateActiveDocument((doc) => ({
       ...doc,
-      cards: doc.cards.filter((c) => c.id !== id),
-      connections: doc.connections.filter((conn) => conn.fromId !== id && conn.toId !== id),
+      cards: doc.cards.map((c) => {
+        if (c.id !== id || !c.rejection) return c;
+        const { rejection: _r, ...rest } = c;
+        return { ...rest, updatedAt: Date.now() };
+      }),
     }));
   };
 
@@ -668,6 +755,12 @@ export const App: React.FC = () => {
     });
   };
 
+  const setPeople = (docId: string, update: (people: SpacePerson[]) => SpacePerson[]) =>
+    setWorkspace((prev) => ({
+      ...prev,
+      documents: prev.documents.map((d) => (d.id === docId && d.share ? { ...d, share: { ...d.share, people: update(d.share.people) } } : d)),
+    }));
+
   const findDoc = (id: string | null) => (id ? workspaceRef.current.documents.find((d) => d.id === id) : undefined);
 
   const handleAddPerson = async (person: Person): Promise<string | null> => {
@@ -675,7 +768,11 @@ export const App: React.FC = () => {
     if (!doc || !user) return 'This space no longer exists.';
     if (doc.share) {
       const res = await addMember(doc.share.spaceId, person);
-      return res.success ? null : (res.error ?? 'Could not add them. Please try again.');
+      if (!res.success) return res.error ?? 'Could not add them. Please try again.';
+      setPeople(doc.id, (people) =>
+        people.some((p) => p.userId === person.id) ? people : [...people, { userId: person.id, email: person.email }],
+      );
+      return null;
     }
     // First person added: the space moves out of the account row into a shared one.
     const created = await createSharedSpace(doc);
@@ -683,7 +780,14 @@ export const App: React.FC = () => {
     const spaceId = created.spaceId;
     const added = await addMember(spaceId, person);
     const id = sharedDocId(spaceId);
-    const share = { spaceId, ownerId: user.id, ownerEmail: user.email ?? '', isOwner: true };
+    const ownerEmail = user.email ?? '';
+    const share = {
+      spaceId,
+      ownerId: user.id,
+      ownerEmail,
+      isOwner: true,
+      people: [{ userId: user.id, email: ownerEmail }, ...(added.success ? [{ userId: person.id, email: person.email }] : [])],
+    };
     lastSharedRef.current.set(spaceId, sharedPayload({ ...doc, id }));
     setWorkspace((prev) => ({
       ...prev,
@@ -698,7 +802,9 @@ export const App: React.FC = () => {
     const doc = findDoc(shareDocId);
     if (!doc?.share) return null;
     const res = await removeMember(doc.share.spaceId, memberId);
-    return res.success ? null : (res.error ?? 'Could not remove them. Please try again.');
+    if (!res.success) return res.error ?? 'Could not remove them. Please try again.';
+    setPeople(doc.id, (people) => people.filter((p) => p.userId !== memberId));
+    return null;
   };
 
   const handleStopSharing = async (): Promise<string | null> => {
@@ -844,7 +950,18 @@ export const App: React.FC = () => {
         />
 
         <main className="flex-1 w-full h-full relative overflow-hidden">
-          {viewMode === 'feed' ? (
+          {viewMode === 'table' ? (
+            <TableView
+              document={activeDocument}
+              myId={user.id}
+              activeTagFilter={activeTagFilter}
+              onSelectTagFilter={setActiveTagFilter}
+              onUpdateCard={handleUpdateCard}
+              onDeleteCard={handleDeleteCard}
+              onAgreeReject={handleAgreeReject}
+              onKeep={handleKeepCard}
+            />
+          ) : viewMode === 'feed' ? (
             <MobileFeedView
               document={activeDocument}
               activeTagFilter={activeTagFilter}
@@ -870,6 +987,11 @@ export const App: React.FC = () => {
                 onDeleteCluster={handleDeleteCluster}
                 onAddCardInsideCluster={handleAddCardInsideCluster}
                 onDeleteConnection={handleDeleteConnection}
+                voting={
+                  votingPeople(activeDocument)
+                    ? { myId: user.id, people: activeDocument.share!.people.length, onAgree: handleAgreeReject, onKeep: handleKeepCard }
+                    : undefined
+                }
                 onCreateAt={(type, x, y) => handleAddCardAt(type, x, y)}
               />
               <CanvasDock onAddCard={handleAddCard} onAddCluster={handleAddCluster} />
@@ -907,7 +1029,7 @@ export const App: React.FC = () => {
         onAddCard={handleAddCard}
         onAddCluster={handleAddCluster}
         onToggleTheme={toggleTheme}
-        onToggleViewMode={() => setViewMode(viewMode === 'feed' ? 'canvas' : 'feed')}
+        onToggleViewMode={() => setViewMode(viewMode === 'canvas' ? 'feed' : 'canvas')}
         onOpenAccount={() => setAccountModalOpen(true)}
         onFocusCard={(id) => {
           setViewMode('canvas');

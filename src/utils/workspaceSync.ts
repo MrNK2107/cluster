@@ -1,4 +1,4 @@
-import type { BoardDocument, Viewport, WorkspaceData } from '../types';
+import type { BoardDocument, CardData, Viewport, WorkspaceData } from '../types';
 import { sharedPayload, type SharedSpace } from './sharing';
 
 /**
@@ -106,7 +106,27 @@ export function mergeDocs(base: BoardDocument, mine: BoardDocument, theirs: Boar
     description: field('description'),
     updatedAt: Math.max(mine.updatedAt, theirs.updatedAt),
     clusters,
-    cards: cards.map((c) => (c.clusterId && !clusters.some((cl) => cl.id === c.clusterId) ? { ...c, clusterId: null } : c)),
+    cards: cards.map((c) => {
+      const out = c.clusterId && !clusters.some((cl) => cl.id === c.clusterId) ? { ...c, clusterId: null } : c;
+      return keepAllVotes(out, mine.cards, theirs.cards);
+    }),
     connections,
   };
+}
+
+/** Two people agreeing at the same time must both count, whichever copy won. */
+function keepAllVotes(card: CardData, mine: CardData[], theirs: CardData[]): CardData {
+  const r = card.rejection;
+  if (!r) return card;
+  const approvals = new Set(r.approvals);
+  for (const other of [...mine, ...theirs]) {
+    if (other.id === card.id && other.rejection?.id === r.id) other.rejection.approvals.forEach((a) => approvals.add(a));
+  }
+  return approvals.size === r.approvals.length ? card : { ...card, rejection: { ...r, approvals: [...approvals] } };
+}
+
+/** True once everyone with access has agreed to reject the card. */
+export function rejectionAgreed(card: CardData, people: { userId: string }[]): boolean {
+  const r = card.rejection;
+  return Boolean(r && people.length > 0 && people.every((p) => r.approvals.includes(p.userId)));
 }
