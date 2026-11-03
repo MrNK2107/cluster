@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from 'react';
-import { Plus, Search, MoreHorizontal, Copy, Trash2, PanelLeftClose, Users, LogOut } from 'lucide-react';
+import { Plus, Search, MoreHorizontal, Copy, Trash2, PanelLeftClose, Users, LogOut, ShieldCheck } from 'lucide-react';
 import type { BoardDocument } from '../types';
 import type { AuthUser } from '../utils/supabase';
 import { IconButton, Kbd, LogoMark, MOD_KEY, MenuItem, MenuPanel, Wordmark, useDismiss } from './ui';
@@ -78,6 +78,9 @@ const SpaceRow: React.FC<{
         <span className="min-w-0 flex-1">
           <span className="flex items-start gap-1.5 min-w-0">
             <span className="line-clamp-2 break-words text-[14px] leading-snug font-semibold">{stripLeadingEmoji(doc.title, doc.icon)}</span>
+            {doc.protected && (
+              <ShieldCheck className="w-3.5 h-3.5 mt-0.5 shrink-0 text-ink-400" aria-label="Protected: can’t be deleted" />
+            )}
             {doc.share && (
               <Users
                 className="w-3.5 h-3.5 mt-0.5 shrink-0 text-ink-400"
@@ -238,7 +241,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
               key={doc.id}
               doc={doc}
               active={doc.id === activeDocId}
-              canDelete={Boolean(doc.share) || documents.length > 1}
+              canDelete={
+                // Leaving is always allowed; deleting never is for a protected space.
+                Boolean(doc.share && !doc.share.isOwner) || (!doc.protected && (Boolean(doc.share) || documents.length > 1))
+              }
               onSelect={() => {
                 onSelectDocument(doc.id);
                 if (isMobile()) onClose();

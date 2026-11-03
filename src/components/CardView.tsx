@@ -143,6 +143,8 @@ export interface CardVoting {
   people: number;
   onAgree: (cardId: string) => void;
   onKeep: (cardId: string) => void;
+  /** Only for the space's owner: delete without waiting for everyone. */
+  onDeleteNow?: (cardId: string) => void;
 }
 
 const stop = {
@@ -366,6 +368,21 @@ export const CardView: React.FC<CardViewProps> = ({
                   </MenuItem>
                 </>
               )}
+              {voting?.onDeleteNow && (
+                <>
+                  {card.rejection && <MenuDivider />}
+                  <MenuItem
+                    tone="danger"
+                    icon={<Trash2 className="w-4 h-4" />}
+                    onClick={() => {
+                      voting.onDeleteNow?.(card.id);
+                      setPopover(null);
+                    }}
+                  >
+                    Delete now
+                  </MenuItem>
+                </>
+              )}
             </MenuPanel>
           )}
         </div>
@@ -395,6 +412,15 @@ export const CardView: React.FC<CardViewProps> = ({
             >
               {card.rejection.byId === voting.myId ? 'Cancel' : 'Keep it'}
             </button>
+            {voting.onDeleteNow && (
+              <button
+                type="button"
+                onClick={() => voting.onDeleteNow?.(card.id)}
+                className="h-7 px-2.5 rounded-lg text-[12px] font-semibold text-rose-700 hover:bg-rose-100 dark:text-rose-300 dark:hover:bg-rose-500/10"
+              >
+                Delete now
+              </button>
+            )}
           </div>
         </div>
       )}

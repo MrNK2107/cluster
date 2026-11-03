@@ -490,3 +490,185 @@ describe('table view and rejecting entries', () => {
     }, SAVE_WAIT);
   });
 });
+
+describe('protected spaces and owner deletes', () => {
+  const SID = '00000000-0000-4000-8000-0000000000aa';
+  const DOC_ID = `space-${SID}`;
+  const openTable = () => fireEvent.click(screen.getByRole('radio', { name: 'Table' }));
+  type SharedDoc = WorkspaceData['documents'][number];
+  const row = () => fake.spaces.get(SID)?.doc as SharedDoc;
+  const entry = (title: string) => row().cards.find((c) => c.title === title);
+
+  /** The owner u1 (me@example.test) shares "Opportunities" with `members`. */
+  function seedSharedSpace({ protectedSpace = false, members = ['u2'], rejections = {} as Record<string, string[]> } = {}) {
+    const cards = ['Alpha', 'Beta', 'Gamma'].map((title, i) => ({
+      id: `h-${i}`,
+      type: 'note' as const,
+      title,
+      x: 0,
+      y: 0,
+      color: 'default' as const,
+      tags: [],
+      clusterId: null,
+      createdAt: 1,
+      updatedAt: 1,
+      ...(rejections[title]
+        ? { rejection: { id: `rj-${i}`, byId: rejections[title][0], byEmail: '', at: 1, approvals: rejections[title] } }
+        : {}),
+    }));
+    const doc: SharedDoc = {
+      id: DOC_ID,
+      title: 'Opportunities',
+      icon: '🎯',
+      color: '#6366f1',
+      createdAt: 1,
+      updatedAt: 1,
+      clusters: [],
+      cards,
+      connections: [],
+      viewport: { x: 0, y: 0, zoom: 1 },
+      ...(protectedSpace ? { protected: true } : {}),
+    };
+    fake.spaces.set(SID, { id: SID, owner_id: 'u1', owner_email: 'me@example.test', doc, created_at: '0' });
+    members.forEach((m) => fake.members.push({ space_id: SID, user_id: m, email: `${m}@example.test` }));
+  }
+
+  /** Opens the app as `userId` with the shared space in front. */
+  async function openAs(userId: string, email: string) {
+    const ws = createEditedWorkspace();
+    ws.activeDocId = DOC_ID;
+    seedRow(userId, ws);
+    fake.signIn(userId, email);
+    await renderApp();
+    await screen.findByText(email);
+  }
+
+  it('offers the owner no way to delete or stop sharing a protected space', async () => {
+    seedSharedSpace({ protectedSpace: true });
+    await openAs('u1', 'me@example.test');
+    expect(screen.getByLabelText('Protected: can’t be deleted')).toBeTruthy();
+    fireEvent.click(screen.getByLabelText('Options for Opportunities'));
+    expect(screen.queryByText('Delete for everyone')).toBeNull();
+    expect(screen.queryByText(/Delete space/)).toBeNull();
+    expect(screen.getByText('Duplicate space')).toBeTruthy();
+
+    fireEvent.click(screen.getByText('Share…'));
+    expect(await screen.findByText(/This space is protected: it stays shared/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Stop sharing/ })).toBeNull();
+    // The owner can still remove people.
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove u2@example.test' }));
+    await waitFor(() => expect(fake.members).toHaveLength(0));
+    expect(fake.spaces.has(SID)).toBe(true);
+  });
+
+  it('lets a member leave a protected space but not delete it', async () => {
+    seedSharedSpace({ protectedSpace: true });
+    await openAs('u2', 'u2@example.test');
+    fireEvent.click(screen.getByLabelText('Options for Opportunities'));
+    expect(screen.queryByText('Delete for everyone')).toBeNull();
+    fireEvent.click(screen.getByText('Leave space'));
+    fireEvent.click(screen.getByText('Click again to leave'));
+    await waitFor(() => expect(fake.members).toHaveLength(0));
+    expect(fake.spaces.has(SID)).toBe(true);
+    expect(row().protected).toBe(true);
+  });
+
+  it('keeps a protected space protected after edits, and its copy is ordinary', async () => {
+    seedSharedSpace({ protectedSpace: true });
+    await openAs('u1', 'me@example.test');
+    openTable();
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Alpha now' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm: delete Alpha now' }));
+    await waitFor(() => expect(entry('Alpha')).toBeUndefined(), SAVE_WAIT);
+    expect(row().protected).toBe(true);
+
+    fireEvent.click(screen.getByLabelText('Options for Opportunities'));
+    fireEvent.click(screen.getByText('Duplicate space'));
+    await waitFor(
+      () => expect(storedRow('u1').documents.some((d) => d.title === 'Opportunities copy')).toBe(true),
+      SAVE_WAIT,
+    );
+    expect(storedRow('u1').documents.find((d) => d.title === 'Opportunities copy')).not.toHaveProperty('protected');
+  });
+
+  it('never deletes a protected space that is not shared', async () => {
+    const ws = createEditedWorkspace();
+    ws.documents[0].protected = true;
+    await signedInApp(ws);
+    fireEvent.click(screen.getByLabelText(`Options for ${ws.documents[0].title}`));
+    expect(screen.queryByText('Delete space')).toBeNull();
+    // Another space still can be deleted.
+    fireEvent.click(screen.getByLabelText(`Options for ${ws.documents[1].title}`));
+    expect(screen.getByText('Delete space')).toBeTruthy();
+  });
+
+  it('lets the owner delete an entry straight away', async () => {
+    seedSharedSpace();
+    await openAs('u1', 'me@example.test');
+    openTable();
+    expect(screen.getByRole('button', { name: 'Propose rejecting Beta' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Beta now' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm: delete Beta now' }));
+    await waitFor(() => expect(entry('Beta')).toBeUndefined(), SAVE_WAIT);
+    expect(entry('Alpha')).toBeTruthy();
+  });
+
+  it('lets the owner vote on a proposal, or delete it outright', async () => {
+    seedSharedSpace({ members: ['u2', 'u3'], rejections: { Alpha: ['u2'], Gamma: ['u3'] } });
+    await openAs('u1', 'me@example.test');
+    openTable();
+    expect(screen.getAllByText(/proposed rejecting this · 1 of 3 agreed/)).toHaveLength(2);
+    fireEvent.click(screen.getAllByRole('button', { name: /Agree to reject/ })[0]);
+    await waitFor(() => expect(entry('Alpha')?.rejection?.approvals).toEqual(['u2', 'u1']), SAVE_WAIT);
+
+    const gammaRow = screen.getByText('Gamma').closest('li')!;
+    const deleteNow = Array.from(gammaRow.querySelectorAll('button')).find((b) => b.textContent?.includes('Delete now'))!;
+    fireEvent.click(deleteNow);
+    await waitFor(() => expect(entry('Gamma')).toBeUndefined(), SAVE_WAIT);
+    expect(entry('Alpha')?.rejection?.approvals).toEqual(['u2', 'u1']);
+  });
+
+  it('still only proposes when a member deletes', async () => {
+    seedSharedSpace();
+    await openAs('u2', 'u2@example.test');
+    openTable();
+    expect(screen.queryByRole('button', { name: 'Delete Beta now' })).toBeNull();
+    expect(screen.queryByText('Delete now')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Propose rejecting Beta' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm: propose rejecting Beta' }));
+    await waitFor(() => expect(entry('Beta')?.rejection?.approvals).toEqual(['u2']), SAVE_WAIT);
+    expect(screen.queryByText('Delete now')).toBeNull();
+  });
+
+  it('deletes once the owner and every member agree', async () => {
+    seedSharedSpace({ members: ['u2', 'u3'], rejections: { Beta: ['u3', 'u1'] } });
+    await openAs('u2', 'u2@example.test');
+    openTable();
+    expect(screen.getByText(/proposed rejecting this · 2 of 3 agreed/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /Agree to reject/ }));
+    await waitFor(() => expect(entry('Beta')).toBeUndefined(), SAVE_WAIT);
+  });
+
+  it('deletes when the last two people agree at the same time', async () => {
+    seedSharedSpace({ members: ['u2', 'u3'], rejections: { Beta: ['u1'] } });
+    await openAs('u2', 'u2@example.test');
+    openTable();
+    // u3 agrees on another device before u2's vote is saved.
+    const beta = row().cards.find((c) => c.title === 'Beta')!;
+    beta.rejection!.approvals = ['u1', 'u3'];
+    fireEvent.click(screen.getByRole('button', { name: /Agree to reject/ }));
+    await waitFor(() => expect(entry('Beta')).toBeUndefined(), SAVE_WAIT);
+    await waitFor(() => expect(screen.queryByText('Beta')).toBeNull(), SAVE_WAIT);
+  });
+
+  it('puts an entry back when the database says not everyone has agreed yet', async () => {
+    seedSharedSpace({ rejections: { Beta: ['u1'] } });
+    await openAs('u2', 'u2@example.test');
+    openTable();
+    // Someone joins after u2 opened the space, so u2's vote is not the last one.
+    fake.members.push({ space_id: SID, user_id: 'u3', email: 'u3@example.test' });
+    fireEvent.click(screen.getByRole('button', { name: /Agree to reject/ }));
+    await waitFor(() => expect(entry('Beta')?.rejection?.approvals).toEqual(['u1', 'u2']), SAVE_WAIT);
+    expect(await screen.findByText('Beta')).toBeTruthy();
+  });
+});

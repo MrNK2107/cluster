@@ -188,6 +188,7 @@ export function sanitizeDocument(input: unknown): BoardDocument | null {
     id,
     title: str(input.title) || 'Untitled Space',
     ...(typeof input.description === 'string' ? { description: str(input.description, 1000) } : {}),
+    ...(input.protected === true ? { protected: true } : {}),
     icon: str(input.icon, 16) || '📝',
     color: typeof input.color === 'string' && HEX_COLOR.test(input.color) ? input.color : '#6366f1',
     createdAt: num(input.createdAt, Date.now()),

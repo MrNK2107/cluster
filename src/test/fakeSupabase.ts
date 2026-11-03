@@ -70,6 +70,39 @@ export function createFakeSupabase() {
   const isOwnerOf = (sid: string) => spaces.get(sid)?.owner_id === me();
   const canSee = (sid: string) => isOwnerOf(sid) || isMember(sid);
 
+  /**
+   * The rules from supabase/migrations/*_protected_spaces.sql: a protected
+   * space can't be deleted or unprotected; someone other than the owner may
+   * remove a card only once the owner and every member agreed (removing it
+   * counts as their own vote), and may add only their own vote.
+   */
+  type Doc = { protected?: boolean; cards?: { id: string; rejection?: { id: string; approvals?: string[] } }[] };
+  const isProtected = (doc: unknown) => (doc as Doc | null)?.protected === true;
+  const guardUpdate = (row: SpaceRow, next: Doc, uid: string): string | null => {
+    const old = row.doc as Doc;
+    if (isProtected(old) && !isProtected(next)) next.protected = true;
+    if (uid === row.owner_id) return null;
+    if (!isProtected(old) && isProtected(next)) delete next.protected;
+    const people = [row.owner_id, ...members.filter((m) => m.space_id === row.id).map((m) => m.user_id)];
+    const nextCards = next.cards ?? [];
+    for (const card of old.cards ?? []) {
+      if (nextCards.some((c) => c.id === card.id)) continue;
+      const agreed = new Set([...(card.rejection?.approvals ?? []), uid]);
+      if (!card.rejection || !people.every((p) => agreed.has(p))) {
+        return `clustr_refused: only the owner can delete "${card.id}" before everyone agrees`;
+      }
+    }
+    for (const card of nextCards) {
+      if (!card.rejection) continue;
+      const before = (old.cards ?? []).find((c) => c.id === card.id)?.rejection;
+      const had = new Set(before && before.id === card.rejection.id ? before.approvals : []);
+      if ((card.rejection.approvals ?? []).some((a) => !had.has(a) && a !== uid)) {
+        return `clustr_refused: votes on "${card.id}" can only be added by the person voting`;
+      }
+    }
+    return null;
+  };
+
   type Filter = [string, unknown];
   const matches = (row: Record<string, unknown>, filters: Filter[]) => filters.every(([c, v]) => row[c] === v);
   const pickCols = (row: Record<string, unknown>, cols: string) =>
@@ -99,12 +132,21 @@ export function createFakeSupabase() {
         const visible = [...spaces.values()].filter((r) => canSee(r.id) && matches(r, filters));
         if (op === 'select') return { data: visible.sort((a, b) => a.created_at.localeCompare(b.created_at)).map((r) => (cols === '*' ? structuredClone(r) : pickCols(r, cols))), error: null };
         if (op === 'update') {
-          visible.forEach((r) => {
-            if (payload.doc !== undefined) r.doc = structuredClone(payload.doc);
-          });
+          if (payload.doc === undefined) return { data: null, error: null };
+          // Checked for every row before any is written, like one statement.
+          const next = visible.map((r) => ({ r, doc: structuredClone(payload.doc) as Doc }));
+          for (const { r, doc } of next) {
+            const refusal = guardUpdate(r, doc, uid);
+            if (refusal) return { data: null, error: { message: refusal, code: 'P0001' } };
+          }
+          next.forEach(({ r, doc }) => (r.doc = doc));
           return { data: null, error: null };
         }
-        visible.filter((r) => isOwnerOf(r.id)).forEach((r) => {
+        const deleting = visible.filter((r) => isOwnerOf(r.id));
+        if (deleting.some((r) => isProtected(r.doc))) {
+          return { data: null, error: { message: 'clustr_refused: this space is protected and cannot be deleted', code: 'P0001' } };
+        }
+        deleting.forEach((r) => {
           spaces.delete(r.id);
           for (let i = members.length - 1; i >= 0; i--) if (members[i].space_id === r.id) members.splice(i, 1);
         });

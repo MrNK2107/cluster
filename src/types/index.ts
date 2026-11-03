@@ -94,6 +94,12 @@ export interface BoardDocument {
   cards: CardData[];
   connections: Connection[];
   viewport: Viewport;
+  /**
+   * Nobody can delete this space, not even its owner (the database refuses
+   * too). People can still leave it, and the owner can still add or remove
+   * people. Only turned off by hand in the database.
+   */
+  protected?: boolean;
   /** Set when the space is shared between accounts; never saved inside the space itself. */
   share?: ShareInfo;
 }

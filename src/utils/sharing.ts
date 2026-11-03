@@ -141,7 +141,22 @@ export async function fetchSharedSpace(spaceId: string): Promise<{ doc: BoardDoc
   }
 }
 
-export async function saveSharedSpace(spaceId: string, doc: BoardDocument): Promise<{ success: boolean; error?: string }> {
+/**
+ * Errors raised by the database rules in *_protected_spaces.sql start with
+ * this, so the app can tell "not allowed" apart from a failed request.
+ */
+export const REFUSED_PREFIX = 'clustr_refused';
+
+const isRefusal = (error: { message?: string }) => (error.message ?? '').startsWith(REFUSED_PREFIX);
+
+/**
+ * `refused` is set when the database turned the change down by rule (for
+ * example a card removed before everyone agreed), not because it failed.
+ */
+export async function saveSharedSpace(
+  spaceId: string,
+  doc: BoardDocument,
+): Promise<{ success: boolean; error?: string; refused?: boolean }> {
   const client = await getSupabaseClient();
   if (!client) return { success: false };
   try {
@@ -149,20 +164,22 @@ export async function saveSharedSpace(spaceId: string, doc: BoardDocument): Prom
       .from('shared_spaces')
       .update({ doc: sharedPayload(doc), updated_at: new Date().toISOString() })
       .eq('id', spaceId);
-    if (error) return { success: false, error: describeError(error) };
+    if (error) return { success: false, error: describeError(error), ...(isRefusal(error) ? { refused: true } : {}) };
     return { success: true };
   } catch (err) {
     return { success: false, error: describeError(err) };
   }
 }
 
-/** Owner only: stops sharing and removes the shared copy for everyone. */
+/** Owner only: stops sharing and removes the shared copy for everyone. Protected spaces are refused. */
 export async function deleteSharedSpace(spaceId: string): Promise<{ success: boolean; error?: string }> {
   const client = await getSupabaseClient();
   if (!client) return { success: false };
   try {
     const { error } = await client.from('shared_spaces').delete().eq('id', spaceId);
-    if (error) return { success: false, error: describeError(error) };
+    if (error) {
+      return { success: false, error: isRefusal(error) ? 'This space is protected and can’t be deleted.' : describeError(error) };
+    }
     return { success: true };
   } catch (err) {
     return { success: false, error: describeError(err) };

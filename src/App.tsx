@@ -39,7 +39,7 @@ import {
   sharedPayload,
   type Person,
 } from './utils/sharing';
-import { mergeDocs, mergeWorkspace, rejectionAgreed, splitWorkspace } from './utils/workspaceSync';
+import { dropAgreedCards, keepUnagreedCards, mergeDocs, mergeWorkspace, rejectionAgreed, splitWorkspace } from './utils/workspaceSync';
 import { Sidebar } from './components/Sidebar';
 import { TopBar } from './components/TopBar';
 import { Canvas } from './components/Canvas';
@@ -165,6 +165,7 @@ export const App: React.FC = () => {
   // real changes are written. The account row and each shared space are
   // tracked separately so a save only writes the parts that changed.
   const workspaceRef = useRef(workspace);
+  const userIdRef = useRef(userId);
   const lastSavedRef = useRef<string | null>(null);
   const lastPersonalRef = useRef<string | null>(null);
   const lastSharedRef = useRef(new Map<string, BoardDocument>());
@@ -174,6 +175,9 @@ export const App: React.FC = () => {
   useEffect(() => {
     workspaceRef.current = workspace;
   }, [workspace]);
+  useEffect(() => {
+    userIdRef.current = userId;
+  }, [userId]);
 
   /** Records `ws` as exactly what the database holds. */
   const markSaved = useCallback((ws: WorkspaceData) => {
@@ -316,8 +320,21 @@ export const App: React.FC = () => {
           continue;
         }
         const theirs = sharedPayload(latest.doc);
-        const toWrite = base && JSON.stringify(theirs) !== JSON.stringify(base) ? mergeDocs(base, doc, theirs) : doc;
-        const res = await saveSharedSpace(spaceId, toWrite);
+        let toWrite = base && JSON.stringify(theirs) !== JSON.stringify(base) ? mergeDocs(base, doc, theirs) : doc;
+        const people = snapshot.documents.find((d) => d.share?.spaceId === spaceId)?.share?.people ?? [];
+        if (toWrite !== doc && people.length > 1) toWrite = dropAgreedCards(toWrite, people);
+        let res = await saveSharedSpace(spaceId, toWrite);
+        const myId = userIdRef.current;
+        if (res.refused && myId) {
+          // Someone joined since we loaded, or another save got in first: the
+          // database keeps cards not everyone has agreed to remove. Put them
+          // back (with this person's vote) and save the rest.
+          const fixed = keepUnagreedCards(toWrite, theirs, myId);
+          if (fixed !== toWrite) {
+            toWrite = fixed;
+            res = await saveSharedSpace(spaceId, toWrite);
+          }
+        }
         if (!res.success) {
           ok = false;
           continue;
@@ -601,6 +618,15 @@ export const App: React.FC = () => {
     });
   };
 
+  /** True when the open space is shared and this person owns it: they may delete without a vote. */
+  const ownsSharedSpace = (doc: BoardDocument) => Boolean(doc.share?.isOwner && user && doc.share.ownerId === user.id);
+
+  /** Owner only: deletes a card in their shared space straight away, pending vote or not. */
+  const handleDeleteCardNow = (id: string) => {
+    if (votingPeople(activeDocument) && !ownsSharedSpace(activeDocument)) return;
+    updateActiveDocument((doc) => removeCard(doc, id));
+  };
+
   const handleAgreeReject = (id: string) => {
     if (!user) return;
     const me = user.id;
@@ -810,6 +836,7 @@ export const App: React.FC = () => {
   const handleStopSharing = async (): Promise<string | null> => {
     const doc = findDoc(shareDocId);
     if (!doc?.share) return null;
+    if (doc.protected) return 'This space is protected, so it stays shared. You can still remove people.';
     // Keep the owner's latest content as an ordinary space first, so nothing is lost.
     const spaceId = doc.share.spaceId;
     const id = newDocId();
@@ -838,6 +865,8 @@ export const App: React.FC = () => {
   const handleDeleteDocument = async (id: string) => {
     const doc = findDoc(id);
     if (!doc) return;
+    // Nobody deletes a protected space; people it was shared with may still leave it.
+    if (doc.protected && !(doc.share && !doc.share.isOwner)) return;
     if (doc.share && user) {
       const res = doc.share.isOwner ? await deleteSharedSpace(doc.share.spaceId) : await removeMember(doc.share.spaceId, user.id);
       if (!res.success) {
@@ -912,8 +941,10 @@ export const App: React.FC = () => {
         onDuplicateDocument={(id) => {
           const doc = workspace.documents.find((d) => d.id === id);
           if (!doc) return;
+          // A copy is an ordinary space: it is not shared and not protected.
+          const { protected: _protected, ...unprotected } = withoutShare(doc);
           const dup: BoardDocument = {
-            ...withoutShare(doc),
+            ...unprotected,
             id: newDocId(),
             title: `${doc.title} copy`,
             createdAt: Date.now(),
@@ -958,6 +989,7 @@ export const App: React.FC = () => {
               onSelectTagFilter={setActiveTagFilter}
               onUpdateCard={handleUpdateCard}
               onDeleteCard={handleDeleteCard}
+              onDeleteCardNow={votingPeople(activeDocument) && ownsSharedSpace(activeDocument) ? handleDeleteCardNow : undefined}
               onAgreeReject={handleAgreeReject}
               onKeep={handleKeepCard}
             />
@@ -989,7 +1021,13 @@ export const App: React.FC = () => {
                 onDeleteConnection={handleDeleteConnection}
                 voting={
                   votingPeople(activeDocument)
-                    ? { myId: user.id, people: activeDocument.share!.people.length, onAgree: handleAgreeReject, onKeep: handleKeepCard }
+                    ? {
+                        myId: user.id,
+                        people: activeDocument.share!.people.length,
+                        onAgree: handleAgreeReject,
+                        onKeep: handleKeepCard,
+                        ...(ownsSharedSpace(activeDocument) ? { onDeleteNow: handleDeleteCardNow } : {}),
+                      }
                     : undefined
                 }
                 onCreateAt={(type, x, y) => handleAddCardAt(type, x, y)}

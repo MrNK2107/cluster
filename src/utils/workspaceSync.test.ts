@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { BoardDocument, CardData, WorkspaceData } from '../types';
-import { mergeDocs, mergeWorkspace, rejectionAgreed, splitWorkspace } from './workspaceSync';
+import { dropAgreedCards, keepUnagreedCards, mergeDocs, mergeWorkspace, rejectionAgreed, splitWorkspace } from './workspaceSync';
+import { sanitizeDocument } from './validate';
 
 const card = (id: string, title: string, extra: Partial<CardData> = {}): CardData => ({
   id,
@@ -118,5 +119,79 @@ describe('rejection votes', () => {
     expect(rejectionAgreed(card('a', 'A', { rejection: rej(['u1']) }), people)).toBe(false);
     expect(rejectionAgreed(card('a', 'A', { rejection: rej(['u2', 'u1']) }), people)).toBe(true);
     expect(rejectionAgreed(card('a', 'A'), people)).toBe(false);
+  });
+});
+
+describe('protected spaces', () => {
+  it('keeps the protected flag through sanitizing and only when it is exactly true', () => {
+    expect(sanitizeDocument({ ...doc('d'), protected: true })?.protected).toBe(true);
+    expect(sanitizeDocument({ ...doc('d'), protected: 'yes' })).not.toHaveProperty('protected');
+    expect(sanitizeDocument(doc('d'))).not.toHaveProperty('protected');
+  });
+
+  it('a merge keeps the flag when either side has it', () => {
+    const base = doc('d', [], { protected: true });
+    const mine = doc('d', [card('a', 'A')]);
+    expect(mergeDocs(base, mine, base).protected).toBe(true);
+    expect(mergeDocs(doc('d'), doc('d', [card('a', 'A')]), doc('d', [], { protected: true })).protected).toBe(true);
+    expect(mergeDocs(doc('d'), doc('d', [card('a', 'A')]), doc('d', [card('b', 'B')]))).not.toHaveProperty('protected');
+  });
+});
+
+describe('dropAgreedCards', () => {
+  it('removes only cards everyone agreed to reject, with their links', () => {
+    const rej = (approvals: string[]) => ({ id: 'r', byId: 'o', byEmail: '', at: 1, approvals });
+    const d = doc('d', [card('a', 'A', { rejection: rej(['o', 'm']) }), card('b', 'B', { rejection: rej(['o']) }), card('c', 'C')], {
+      connections: [{ id: 'l', fromId: 'a', toId: 'c' }],
+    });
+    const out = dropAgreedCards(d, [{ userId: 'o' }, { userId: 'm' }]);
+    expect(out.cards.map((c) => c.id)).toEqual(['b', 'c']);
+    expect(out.connections).toEqual([]);
+    expect(dropAgreedCards(doc('d', [card('c', 'C')]), [{ userId: 'o' }])).toEqual(doc('d', [card('c', 'C')]));
+  });
+});
+
+describe('keepUnagreedCards', () => {
+  const rej = (id: string, approvals: string[], byId = 'o') => ({ id, byId, byEmail: '', at: 1, approvals });
+
+  it('brings back a card removed before everyone agreed, with my vote on it', () => {
+    const latest = doc('d', [card('a', 'A', { rejection: rej('r1', ['o']) }), card('b', 'B')]);
+    const mine = doc('d', [card('b', 'B', { title: 'B edited' })]);
+    const out = keepUnagreedCards(mine, latest, 'm');
+    expect(out.cards.map((c) => c.id)).toEqual(['b', 'a']);
+    expect(out.cards[0].title).toBe('B edited');
+    expect(out.cards[1].rejection?.approvals).toEqual(['o', 'm']);
+  });
+
+  it('drops votes the database never saw from anyone but me', () => {
+    const latest = doc('d', [card('a', 'A', { rejection: rej('r1', ['o']) }), card('b', 'B')]);
+    const mine = doc('d', [
+      card('a', 'A', { rejection: rej('r1', ['o', 'x', 'm']) }),
+      card('b', 'B', { rejection: rej('r9', ['x', 'm'], 'x') }),
+    ]);
+    const out = keepUnagreedCards(mine, latest, 'm');
+    expect(out.cards[0].rejection?.approvals).toEqual(['o', 'm']);
+    expect(out.cards[1].rejection?.approvals).toEqual(['m']);
+  });
+
+  it('falls back to the database copy of a proposal I have no vote in', () => {
+    const latest = doc('d', [card('a', 'A', { rejection: rej('r2', ['o']) })]);
+    const mine = doc('d', [card('a', 'A', { title: 'edited', rejection: rej('r1', ['o', 'x']) })]);
+    const out = keepUnagreedCards(mine, latest, 'm');
+    expect(out.cards[0].title).toBe('edited');
+    expect(out.cards[0].rejection?.id).toBe('r2');
+    expect(keepUnagreedCards(mine, doc('d', [card('a', 'A')]), 'm').cards[0]).not.toHaveProperty('rejection');
+  });
+
+  it('returns the same document when nothing needs fixing', () => {
+    const latest = doc('d', [card('a', 'A', { rejection: rej('r1', ['o']) })]);
+    const mine = doc('d', [card('a', 'A', { rejection: rej('r1', ['o', 'm']) }), card('n', 'New')]);
+    expect(keepUnagreedCards(mine, latest, 'm')).toBe(mine);
+  });
+
+  it('restores links to a card it brings back', () => {
+    const latest = doc('d', [card('a', 'A'), card('b', 'B')], { connections: [{ id: 'l', fromId: 'a', toId: 'b' }] });
+    const mine = doc('d', [card('b', 'B')]);
+    expect(keepUnagreedCards(mine, latest, 'm').connections).toEqual([{ id: 'l', fromId: 'a', toId: 'b' }]);
   });
 });

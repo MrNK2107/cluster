@@ -104,6 +104,8 @@ export function mergeDocs(base: BoardDocument, mine: BoardDocument, theirs: Boar
     icon: field('icon'),
     color: field('color'),
     description: field('description'),
+    // Protection is only ever switched on from the app, so either side having it wins.
+    ...(mine.protected || theirs.protected ? { protected: true } : {}),
     updatedAt: Math.max(mine.updatedAt, theirs.updatedAt),
     clusters,
     cards: cards.map((c) => {
@@ -123,6 +125,70 @@ function keepAllVotes(card: CardData, mine: CardData[], theirs: CardData[]): Car
     if (other.id === card.id && other.rejection?.id === r.id) other.rejection.approvals.forEach((a) => approvals.add(a));
   }
   return approvals.size === r.approvals.length ? card : { ...card, rejection: { ...r, approvals: [...approvals] } };
+}
+
+/**
+ * The database lets someone other than the owner remove a card only once
+ * everyone has agreed to reject it, and add only their own vote (see
+ * supabase/migrations/*_protected_spaces.sql). When it refuses a save, this
+ * brings `doc` back in line with `latest`, the copy the database holds:
+ * removed cards come back (with my vote on them, since removing a card is how
+ * the last person agrees), and votes the database never saw from anyone but
+ * me are dropped. Everything else I changed is kept.
+ */
+export function keepUnagreedCards(doc: BoardDocument, latest: BoardDocument, myId: string): BoardDocument {
+  const latestById = new Map(latest.cards.map((c) => [c.id, c]));
+  const cards: CardData[] = doc.cards.map((c) => {
+    const r = c.rejection;
+    if (!r) return c;
+    const theirs = latestById.get(c.id)?.rejection;
+    if (theirs && theirs.id === r.id) {
+      const allowed = new Set([...theirs.approvals, myId]);
+      const approvals = r.approvals.filter((a) => allowed.has(a));
+      return approvals.length === r.approvals.length ? c : { ...c, rejection: { ...r, approvals } };
+    }
+    // A proposal the database has not seen may carry only my own vote.
+    const approvals = r.approvals.filter((a) => a === myId);
+    if (approvals.length) return approvals.length === r.approvals.length ? c : { ...c, rejection: { ...r, approvals } };
+    const { rejection: _r, ...rest } = c;
+    return theirs ? { ...rest, rejection: theirs } : rest;
+  });
+
+  const kept = new Set(cards.map((c) => c.id));
+  const clusterIds = new Set(doc.clusters.map((c) => c.id));
+  const restored = latest.cards
+    .filter((c) => !kept.has(c.id))
+    .map((c) => {
+      const out = c.clusterId && !clusterIds.has(c.clusterId) ? { ...c, clusterId: null } : c;
+      return out.rejection
+        ? { ...out, rejection: { ...out.rejection, approvals: [...new Set([...out.rejection.approvals, myId])] } }
+        : out;
+    });
+  if (!restored.length && cards.every((c, i) => c === doc.cards[i])) return doc;
+
+  const all = [...cards, ...restored];
+  const ids = new Set([...clusterIds, ...all.map((c) => c.id)]);
+  const connIds = new Set(doc.connections.map((c) => c.id));
+  const connections = [
+    ...doc.connections,
+    ...latest.connections.filter((c) => !connIds.has(c.id) && ids.has(c.fromId) && ids.has(c.toId) && (!kept.has(c.fromId) || !kept.has(c.toId))),
+  ];
+  return { ...doc, cards: all, connections };
+}
+
+/**
+ * Removes cards everyone has agreed to reject. Needed after a merge: when the
+ * last two people agree at the same time, neither copy removed the card, but
+ * the merged votes cover everyone.
+ */
+export function dropAgreedCards(doc: BoardDocument, people: { userId: string }[]): BoardDocument {
+  const gone = new Set(doc.cards.filter((c) => rejectionAgreed(c, people)).map((c) => c.id));
+  if (!gone.size) return doc;
+  return {
+    ...doc,
+    cards: doc.cards.filter((c) => !gone.has(c.id)),
+    connections: doc.connections.filter((c) => !gone.has(c.fromId) && !gone.has(c.toId)),
+  };
 }
 
 /** True once everyone with access has agreed to reject the card. */

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Loader2, Search, UserPlus, X, LogOut, Lock } from 'lucide-react';
+import { Loader2, Search, UserPlus, X, LogOut, Lock, ShieldCheck } from 'lucide-react';
 import type { BoardDocument } from '../types';
 import type { AuthUser } from '../utils/supabase';
 import { fetchMembers, searchPeople, type Member, type Person } from '../utils/sharing';
@@ -232,7 +232,12 @@ export const ShareDialog: React.FC<ShareDialogProps> = ({
 
       {share && (
         <div className="mt-6 pt-5 border-t border-ink-100 dark:border-ink-800">
-          {isOwner ? (
+          {isOwner && doc.protected ? (
+            <p className="flex items-start gap-2 text-[13px] leading-relaxed text-ink-500 dark:text-ink-400">
+              <ShieldCheck className="w-4 h-4 mt-0.5 shrink-0" />
+              This space is protected: it stays shared and can’t be deleted. You can still add or remove people.
+            </p>
+          ) : isOwner ? (
             <>
               <Button
                 variant="danger"

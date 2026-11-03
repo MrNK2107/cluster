@@ -27,6 +27,8 @@ interface TableViewProps {
   onUpdateCard: (id: string, updated: Partial<CardData>) => void;
   /** Deletes the card, or in a shared space proposes rejecting it. */
   onDeleteCard: (id: string) => void;
+  /** Only for the owner of a shared space: deletes without waiting for everyone. */
+  onDeleteCardNow?: (id: string) => void;
   onAgreeReject: (id: string) => void;
   onKeep: (id: string) => void;
 }
@@ -98,11 +100,13 @@ const Row: React.FC<{
   onToggleExpand: () => void;
   onUpdate: (updated: Partial<CardData>) => void;
   onDelete: () => void;
+  onDeleteNow?: () => void;
   onAgree: () => void;
   onKeep: () => void;
   onTag: (tag: string) => void;
-}> = ({ card, doc, myId, expanded, onToggleExpand, onUpdate, onDelete, onAgree, onKeep, onTag }) => {
+}> = ({ card, doc, myId, expanded, onToggleExpand, onUpdate, onDelete, onDeleteNow, onAgree, onKeep, onTag }) => {
   const [confirming, setConfirming] = useState(false);
+  const [confirmingNow, setConfirmingNow] = useState(false);
   const people = doc.share?.people ?? [];
   const shared = people.length > 1;
   const date = entryDate(card);
@@ -242,7 +246,7 @@ const Row: React.FC<{
         </div>
 
         {/* Delete / reject */}
-        <div className="hidden md:flex justify-end">
+        <div className="hidden md:flex justify-end gap-0.5">
           {!r && (
             <button
               type="button"
@@ -265,6 +269,30 @@ const Row: React.FC<{
               )}
             >
               {confirming ? (shared ? 'Reject?' : 'Delete?') : shared ? <ThumbsDown className="w-4 h-4" /> : <Trash2 className="w-4 h-4" />}
+            </button>
+          )}
+          {onDeleteNow && (
+            <button
+              type="button"
+              onClick={() => {
+                if (!confirmingNow) {
+                  setConfirmingNow(true);
+                  return;
+                }
+                setConfirmingNow(false);
+                onDeleteNow();
+              }}
+              onBlur={() => setConfirmingNow(false)}
+              title="Delete now (owner)"
+              aria-label={confirmingNow ? `Confirm: delete ${name} now` : `Delete ${name} now`}
+              className={cn(
+                'inline-flex items-center justify-center h-8 rounded-lg transition-colors',
+                confirmingNow
+                  ? 'px-2 text-[12px] font-semibold bg-rose-600 text-white'
+                  : 'w-8 text-ink-300 hover:text-rose-600 hover:bg-rose-500/10 dark:text-ink-600 dark:hover:text-rose-400',
+              )}
+            >
+              {confirmingNow ? 'Delete?' : <Trash2 className="w-4 h-4" />}
             </button>
           )}
         </div>
@@ -293,6 +321,15 @@ const Row: React.FC<{
           >
             <X className="w-3.5 h-3.5" /> {r.byId === myId ? 'Cancel' : 'Keep it'}
           </button>
+          {onDeleteNow && (
+            <button
+              type="button"
+              onClick={onDeleteNow}
+              className="inline-flex items-center gap-1 h-7 px-2.5 rounded-lg text-[12px] font-semibold text-rose-700 hover:bg-rose-100 dark:text-rose-300 dark:hover:bg-rose-500/10"
+            >
+              <Trash2 className="w-3.5 h-3.5" /> Delete now
+            </button>
+          )}
         </div>
       )}
 
@@ -342,14 +379,25 @@ const Row: React.FC<{
 
           {/* Phone: actions the narrow row hides */}
           {!r && (
-            <button
-              type="button"
-              onClick={onDelete}
-              className="md:hidden inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[13px] font-semibold text-rose-600 ring-1 ring-inset ring-rose-200 dark:text-rose-400 dark:ring-rose-500/30"
-            >
-              {shared ? <ThumbsDown className="w-4 h-4" /> : <Trash2 className="w-4 h-4" />}
-              {shared ? 'Propose rejecting' : 'Delete'}
-            </button>
+            <div className="md:hidden flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={onDelete}
+                className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[13px] font-semibold text-rose-600 ring-1 ring-inset ring-rose-200 dark:text-rose-400 dark:ring-rose-500/30"
+              >
+                {shared ? <ThumbsDown className="w-4 h-4" /> : <Trash2 className="w-4 h-4" />}
+                {shared ? 'Propose rejecting' : 'Delete'}
+              </button>
+              {onDeleteNow && (
+                <button
+                  type="button"
+                  onClick={onDeleteNow}
+                  className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[13px] font-semibold text-rose-600 ring-1 ring-inset ring-rose-200 dark:text-rose-400 dark:ring-rose-500/30"
+                >
+                  <Trash2 className="w-4 h-4" /> Delete now
+                </button>
+              )}
+            </div>
           )}
         </div>
       )}
@@ -364,6 +412,7 @@ export const TableView: React.FC<TableViewProps> = ({
   onSelectTagFilter,
   onUpdateCard,
   onDeleteCard,
+  onDeleteCardNow,
   onAgreeReject,
   onKeep,
 }) => {
@@ -491,6 +540,7 @@ export const TableView: React.FC<TableViewProps> = ({
                   onToggleExpand={() => toggle(c.id)}
                   onUpdate={(u) => onUpdateCard(c.id, u)}
                   onDelete={() => onDeleteCard(c.id)}
+                  onDeleteNow={onDeleteCardNow ? () => onDeleteCardNow(c.id) : undefined}
                   onAgree={() => onAgreeReject(c.id)}
                   onKeep={() => onKeep(c.id)}
                   onTag={(t) => onSelectTagFilter(activeTagFilter === t ? null : t)}
@@ -501,7 +551,10 @@ export const TableView: React.FC<TableViewProps> = ({
         </div>
         <p className="mt-3 text-[12px] text-ink-400 dark:text-ink-500">
           {rows.length} of {entries.length} shown
-          {doc.share && doc.share.people.length > 1 && ' · In a shared space, an entry is deleted only when everyone agrees to reject it.'}
+          {doc.share && doc.share.people.length > 1 &&
+            (onDeleteCardNow
+              ? ' · Others need everyone to agree before an entry is deleted; as the owner you can also delete straight away.'
+              : ' · In a shared space, an entry is deleted only when everyone agrees to reject it.')}
         </p>
       </div>
     </div>
