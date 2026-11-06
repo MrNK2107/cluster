@@ -6,6 +6,7 @@ import { safeHref } from '../utils/validate';
 import { Checkbox, Progress, addTodo, nextPriority, toggleTodo } from './CardView';
 import { IconButton, MenuItem, MenuPanel, useDismiss } from './ui';
 import { cn } from '../utils/cn';
+import { RotaBody } from './RotaCard';
 
 interface MobileFeedViewProps {
   document: BoardDocument;
@@ -204,6 +205,12 @@ const ListCard: React.FC<{
               <Plus className="w-5 h-5" />
             </button>
           </div>
+        </div>
+      )}
+
+      {card.type === 'rota' && (
+        <div className="mt-2">
+          <RotaBody card={card} onUpdate={onUpdate} big />
         </div>
       )}
 

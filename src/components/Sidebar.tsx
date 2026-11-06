@@ -108,7 +108,8 @@ const SpaceRow: React.FC<{
         </span>
       </button>
 
-      <div ref={menuRef} className="absolute right-1.5 top-1/2 -translate-y-1/2">
+      {/* The transform makes this its own layer, so it needs a z-index to sit above the next space. */}
+      <div ref={menuRef} className={cn('absolute right-1.5 top-1/2 -translate-y-1/2', menuOpen && 'z-30')}>
         <IconButton
           label={`Options for ${doc.title}`}
           size="sm"

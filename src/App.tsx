@@ -47,6 +47,8 @@ import { MobileFeedView } from './components/MobileFeedView';
 import { MobileQuickAddSheet } from './components/MobileQuickAddSheet';
 import { TemplatesModal } from './components/TemplatesModal';
 import { AccountModal, SetPasswordDialog } from './components/AccountModal';
+import { newRota, DEFAULT_MEMBERS } from './utils/rota';
+import { RotaPeopleContext } from './utils/rotaContext';
 import { CanvasDock, CARD_KINDS } from './components/CanvasDock';
 import { AuthScreen, WorkspaceLoading } from './components/AuthScreen';
 import { CommandPalette } from './components/CommandPalette';
@@ -93,6 +95,7 @@ const DEFAULT_TITLES: Record<CardType, string> = {
   sticky: '',
   counter: 'Tally',
   links: 'Links',
+  rota: 'Room cleaning',
 };
 
 const DEFAULT_COLORS: Record<CardType, CardColor> = {
@@ -101,6 +104,7 @@ const DEFAULT_COLORS: Record<CardType, CardColor> = {
   sticky: 'yellow',
   counter: 'pink',
   links: 'purple',
+  rota: 'green',
 };
 
 function makeCard(type: CardType, fields: Partial<CardData>): CardData {
@@ -119,6 +123,7 @@ function makeCard(type: CardType, fields: Partial<CardData>): CardData {
     counterValue: type === 'counter' ? 0 : undefined,
     counterLabel: type === 'counter' ? '' : undefined,
     bookmarks: type === 'links' ? [] : undefined,
+    rota: type === 'rota' ? newRota(DEFAULT_MEMBERS) : undefined,
     ...fields,
     createdAt: now,
     updatedAt: now,
@@ -980,6 +985,9 @@ export const App: React.FC = () => {
           onShare={() => setShareDocId(activeDocument.id)}
         />
 
+        <RotaPeopleContext.Provider
+          value={{ myId: user.id, people: activeDocument.share?.people ?? [], isOwner: activeDocument.share?.isOwner ?? true }}
+        >
         <main className="flex-1 w-full h-full relative overflow-hidden">
           {viewMode === 'table' ? (
             <TableView
@@ -1054,6 +1062,7 @@ export const App: React.FC = () => {
             <Plus className="w-5 h-5" /> Add
           </button>
         </main>
+        </RotaPeopleContext.Provider>
       </div>
 
       <CommandPalette

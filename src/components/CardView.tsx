@@ -22,6 +22,7 @@ import { safeHref, normalizeBookmarkUrl } from '../utils/validate';
 import { IconButton, MenuDivider, MenuItem, MenuLabel, MenuPanel, useDismiss } from './ui';
 import { cn } from '../utils/cn';
 import { linkHost } from '../utils/entries';
+import { RotaBody } from './RotaCard';
 
 /* --------------------------------------------------------------------------
  * Shared card logic, used by both the canvas card and the list view.
@@ -643,6 +644,8 @@ export const CardView: React.FC<CardViewProps> = ({
             </div>
           </div>
         )}
+
+        {card.type === 'rota' && <RotaBody card={card} onUpdate={onUpdate} />}
 
         {card.type === 'links' && (
           <div className="space-y-1">

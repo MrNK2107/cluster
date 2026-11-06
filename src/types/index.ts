@@ -1,4 +1,4 @@
-export type CardType = 'todo' | 'note' | 'sticky' | 'counter' | 'links';
+export type CardType = 'todo' | 'note' | 'sticky' | 'counter' | 'links' | 'rota';
 
 export type CardColor = 
   | 'default'
@@ -24,6 +24,22 @@ export interface BookmarkItem {
   url: string;
 }
 
+/** A daily chore rota; the schedule itself is worked out from this (see utils/rota.ts). */
+export interface RotaData {
+  /** In turn order. */
+  members: string[];
+  /** The first day of the rota (YYYY-MM-DD); the first member takes it. */
+  startDate: string;
+  /** Who is away on a day, by YYYY-MM-DD. */
+  away: Record<string, string[]>;
+  /** Days the cleaner says it was cleaned, by YYYY-MM-DD. */
+  done: Record<string, true>;
+  /** User ids of the people who said yes to a day's cleaning, by YYYY-MM-DD. */
+  votes: Record<string, string[]>;
+  /** Days the owner approved straight away, by YYYY-MM-DD. */
+  approved: Record<string, true>;
+}
+
 export interface CardData {
   id: string;
   clusterId?: string | null; // null if floating free on canvas
@@ -42,6 +58,7 @@ export interface CardData {
   counterValue?: number;
   counterLabel?: string;
   bookmarks?: BookmarkItem[];
+  rota?: RotaData;
 
   /** The page this entry is about (registration, job post, docs…). */
   link?: string;

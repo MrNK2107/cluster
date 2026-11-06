@@ -5,6 +5,7 @@ import { cn } from '../utils/cn';
 
 const EMOJI = ['📌', '✨', '🏠', '🎯', '🚀', '🧠', '📚', '💼', '🛒', '✈️', '🎨', '🌱', '💡', '🏋️', '🎵', '🍳', '💸', '🗓️'];
 import type { BoardDocument } from '../types';
+import { DEFAULT_MEMBERS, newRota } from '../utils/rota';
 
 interface TemplatesModalProps {
   isOpen: boolean;
@@ -38,6 +39,29 @@ export const TemplatesModal: React.FC<TemplatesModalProps> = ({
       color: '#6366f1',
       clusters: [],
       cards: [],
+    },
+    {
+      title: 'Hostel',
+      icon: '🏠',
+      description: 'Daily room-cleaning rota for four, with cover when someone is away.',
+      color: '#0d9488',
+      clusters: [],
+      cards: [
+        {
+          id: `cd-${Date.now()}-rota`,
+          clusterId: null,
+          type: 'rota' as const,
+          title: 'Room cleaning',
+          x: 80,
+          y: 80,
+          width: 380,
+          color: 'green' as const,
+          tags: [],
+          rota: newRota(DEFAULT_MEMBERS),
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        },
+      ],
     },
     {
       title: 'Hostel & hospitality',

@@ -21,6 +21,7 @@ const DEFAULT_COLOR: Record<CardType, CardColor> = {
   sticky: 'yellow',
   counter: 'pink',
   links: 'purple',
+  rota: 'green',
 };
 
 const PROMPTS: Record<CardType, { title: string; content?: string; submit: string }> = {
@@ -29,6 +30,7 @@ const PROMPTS: Record<CardType, { title: string; content?: string; submit: strin
   sticky: { title: 'Optional title', content: 'A thought worth keeping…', submit: 'Add sticky' },
   counter: { title: 'e.g. Glasses of water', submit: 'Add tally' },
   links: { title: 'e.g. Useful links', submit: 'Add links card' },
+  rota: { title: 'e.g. Room cleaning', submit: 'Add chore rota' },
 };
 
 export const MobileQuickAddSheet: React.FC<MobileQuickAddSheetProps> = ({

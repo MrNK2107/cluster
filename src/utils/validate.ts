@@ -1,3 +1,4 @@
+import { isDay } from './rota';
 import type {
   BoardDocument,
   BookmarkItem,
@@ -7,6 +8,7 @@ import type {
   Cluster,
   Connection,
   Rejection,
+  RotaData,
   TodoItem,
   Viewport,
   WorkspaceData,
@@ -19,7 +21,7 @@ import type {
  * crash the app or smuggle in `javascript:` links.
  */
 
-const CARD_TYPES: readonly CardType[] = ['todo', 'note', 'sticky', 'counter', 'links'];
+const CARD_TYPES: readonly CardType[] = ['todo', 'note', 'sticky', 'counter', 'links', 'rota'];
 const CARD_COLORS: readonly CardColor[] = [
   'default', 'yellow', 'green', 'blue', 'purple', 'pink', 'amber', 'rose',
 ];
@@ -94,6 +96,37 @@ function sanitizeRejection(v: unknown): Rejection | null {
   return { id, byId, byEmail: str(v.byEmail, 320), at: num(v.at, Date.now()), approvals };
 }
 
+function sanitizeRota(v: unknown): RotaData | null {
+  if (!isDict(v) || !Array.isArray(v.members)) return null;
+  const members = [...new Set(v.members.filter((m): m is string => typeof m === 'string').map((m) => m.trim().slice(0, 40)).filter(Boolean))].slice(0, 20);
+  if (members.length === 0 || !isDay(v.startDate)) return null;
+  const away: Record<string, string[]> = {};
+  if (isDict(v.away)) {
+    for (const [day, who] of Object.entries(v.away).slice(0, 4000)) {
+      if (!isDay(day) || !Array.isArray(who)) continue;
+      const names = who.filter((m): m is string => typeof m === 'string' && members.includes(m));
+      if (names.length) away[day] = [...new Set(names)];
+    }
+  }
+  const done: Record<string, true> = {};
+  if (isDict(v.done)) {
+    for (const [day, flag] of Object.entries(v.done).slice(0, 4000)) if (isDay(day) && flag === true) done[day] = true;
+  }
+  const votes: Record<string, string[]> = {};
+  if (isDict(v.votes)) {
+    for (const [day, ids] of Object.entries(v.votes).slice(0, 4000)) {
+      if (!isDay(day) || !Array.isArray(ids)) continue;
+      const clean = [...new Set(ids.filter((i): i is string => typeof i === 'string').map((i) => i.slice(0, 64)))].slice(0, 50);
+      if (clean.length) votes[day] = clean;
+    }
+  }
+  const approved: Record<string, true> = {};
+  if (isDict(v.approved)) {
+    for (const [day, flag] of Object.entries(v.approved).slice(0, 4000)) if (isDay(day) && flag === true) approved[day] = true;
+  }
+  return { members, startDate: v.startDate, away, done, votes, approved };
+}
+
 function sanitizeCard(v: unknown, idx: number): CardData | null {
   if (!isDict(v)) return null;
   const id = str(v.id);
@@ -123,6 +156,8 @@ function sanitizeCard(v: unknown, idx: number): CardData | null {
   if (Array.isArray(v.bookmarks)) {
     card.bookmarks = v.bookmarks.map(sanitizeBookmark).filter((b): b is BookmarkItem => b !== null);
   }
+  const rota = sanitizeRota(v.rota);
+  if (rota) card.rota = rota;
   if (typeof v.link === 'string' && v.link) {
     const link = safeHref(v.link);
     if (link !== '#') card.link = link;

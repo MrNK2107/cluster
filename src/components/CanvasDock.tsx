@@ -1,5 +1,5 @@
 import React from 'react';
-import { CheckSquare, FileText, StickyNote, Hash, Link2, Layers } from 'lucide-react';
+import { CheckSquare, FileText, StickyNote, Hash, Link2, Layers, Sparkles } from 'lucide-react';
 import type { CardType } from '../types';
 import { cn } from '../utils/cn';
 
@@ -15,6 +15,7 @@ export const CARD_KINDS: {
   { type: 'sticky', label: 'Sticky', key: 'S', icon: StickyNote, tint: 'text-sun-500' },
   { type: 'counter', label: 'Tally', key: 'Y', icon: Hash, tint: 'text-pink-500' },
   { type: 'links', label: 'Links', key: 'L', icon: Link2, tint: 'text-violet-500' },
+  { type: 'rota', label: 'Rota', key: 'R', icon: Sparkles, tint: 'text-mint-500' },
 ];
 
 /** Floating "add" toolbar along the bottom of the canvas (desktop/tablet). */
