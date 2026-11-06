@@ -374,6 +374,44 @@ describe('sharing a space', () => {
     expect(screen.queryByText('Private notes')).toBeNull();
   });
 
+  it('adds people as view only: they can read the space but not change it', async () => {
+    fake.addUser('u2', 'teammate@example.test', 'Team Mate');
+    await signedInApp(OWNER_WS());
+    fireEvent.click(screen.getByTitle('Share this space'));
+    fireEvent.click(screen.getByRole('radio', { name: 'View only' }));
+    fireEvent.change(screen.getByPlaceholderText('Search by email'), { target: { value: 'team' } });
+    fireEvent.click(await screen.findByRole('button', { name: 'Add teammate@example.test' }));
+    await waitFor(() => expect(fake.members).toHaveLength(1));
+    expect(fake.members[0]).toMatchObject({ user_id: 'u2', role: 'view' });
+    await waitFor(() => expect(storedRow('u1').documents).toHaveLength(1), SAVE_WAIT);
+
+    await act(async () => {
+      fake.signIn('u2', 'teammate@example.test');
+    });
+    fireEvent.click(await screen.findByText('Hackathon plan'));
+    expect(await screen.findByText(/View only ·/)).toBeTruthy();
+
+    // Renaming is ignored on screen, and the database would refuse it anyway.
+    fireEvent.click(screen.getByTitle('Rename space'));
+    const input = screen.getByLabelText('Space name');
+    fireEvent.change(input, { target: { value: 'Hijacked' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    await new Promise((r) => setTimeout(r, 1800));
+    expect(([...fake.spaces.values()][0].doc as BoardDocumentLike).title).toBe('Hackathon plan');
+  });
+
+  it('lets the owner change someone from view only to edit', async () => {
+    fake.addUser('u2', 'teammate@example.test', 'Team Mate');
+    await signedInApp(OWNER_WS());
+    fireEvent.click(screen.getByTitle('Share this space'));
+    fireEvent.click(screen.getByRole('radio', { name: 'View only' }));
+    fireEvent.change(screen.getByPlaceholderText('Search by email'), { target: { value: 'team' } });
+    fireEvent.click(await screen.findByRole('button', { name: 'Add teammate@example.test' }));
+    await waitFor(() => expect(fake.members[0]?.role).toBe('view'));
+    fireEvent.change(await screen.findByLabelText('Access for teammate@example.test'), { target: { value: 'edit' } });
+    await waitFor(() => expect(fake.members[0].role).toBe('edit'));
+  });
+
   it('lets a member leave', async () => {
     await shareWithTeammate();
     await act(async () => {

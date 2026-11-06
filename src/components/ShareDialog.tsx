@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Loader2, Search, UserPlus, X, LogOut, Lock, ShieldCheck } from 'lucide-react';
-import type { BoardDocument } from '../types';
+import type { BoardDocument, SpaceRole } from '../types';
 import type { AuthUser } from '../utils/supabase';
 import { fetchMembers, searchPeople, type Member, type Person } from '../utils/sharing';
 import { stripLeadingEmoji } from './Sidebar';
@@ -13,7 +13,8 @@ interface ShareDialogProps {
   user: AuthUser;
   onClose: () => void;
   /** Each returns an error message, or null when it worked. */
-  onAddPerson: (person: Person) => Promise<string | null>;
+  onAddPerson: (person: Person, role: SpaceRole) => Promise<string | null>;
+  onChangeRole: (userId: string, role: SpaceRole) => Promise<string | null>;
   onRemovePerson: (userId: string) => Promise<string | null>;
   onStopSharing: () => Promise<string | null>;
   onLeave: () => Promise<string | null>;
@@ -47,6 +48,7 @@ export const ShareDialog: React.FC<ShareDialogProps> = ({
   user,
   onClose,
   onAddPerson,
+  onChangeRole,
   onRemovePerson,
   onStopSharing,
   onLeave,
@@ -60,6 +62,8 @@ export const ShareDialog: React.FC<ShareDialogProps> = ({
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirmStop, setConfirmStop] = useState(false);
+  /** What people are given when added; can be changed per person afterwards. */
+  const [newRole, setNewRole] = useState<SpaceRole>('edit');
   const searchSeq = useRef(0);
 
   // Who is in the space now.
@@ -120,9 +124,9 @@ export const ShareDialog: React.FC<ShareDialogProps> = ({
   };
 
   const add = async (person: Person) => {
-    const ok = await run(`add:${person.id}`, () => onAddPerson(person));
+    const ok = await run(`add:${person.id}`, () => onAddPerson(person, newRole));
     if (ok) {
-      setMembers((m) => (m.some((x) => x.userId === person.id) ? m : [...m, { userId: person.id, email: person.email }]));
+      setMembers((m) => (m.some((x) => x.userId === person.id) ? m : [...m, { userId: person.id, email: person.email, role: newRole }]));
       setQuery('');
       setResults([]);
     }
@@ -140,8 +144,8 @@ export const ShareDialog: React.FC<ShareDialogProps> = ({
       title={`Share “${title}”`}
       description={
         isOwner
-          ? 'People you add can see and edit this space. Changes show up for everyone within a few seconds.'
-          : `${share?.ownerEmail || 'Someone'} shared this space with you. Everyone here can edit it.`
+          ? 'Choose whether each person can edit this space or only view it. Changes show up for everyone within a few seconds.'
+          : `${share?.ownerEmail || 'Someone'} shared this space with you. ${share?.canEdit === false ? 'You can view it but not change it.' : 'You can edit it.'}`
       }
     >
       {isOwner && (
@@ -161,6 +165,26 @@ export const ShareDialog: React.FC<ShareDialogProps> = ({
             />
             {searching && <Loader2 className="absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-ink-400" />}
           </label>
+
+          <div role="radiogroup" aria-label="Access for the person you add" className="mt-3 inline-flex p-1 rounded-xl bg-ink-100 dark:bg-ink-800">
+            {([['edit', 'Can edit'], ['view', 'View only']] as const).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                role="radio"
+                aria-checked={newRole === value}
+                onClick={() => setNewRole(value)}
+                className={
+                  'h-8 px-3.5 rounded-lg text-[13px] font-semibold transition-colors ' +
+                  (newRole === value
+                    ? 'bg-white text-ink-900 shadow-sm dark:bg-ink-950 dark:text-white'
+                    : 'text-ink-500 hover:text-ink-800 dark:text-ink-400 dark:hover:text-ink-100')
+                }
+              >
+                {label}
+              </button>
+            ))}
+          </div>
 
           {q.length > 0 && q.length < 3 && (
             <p className="mt-2 text-[12px] text-ink-400 dark:text-ink-500">Type at least 3 characters.</p>
@@ -201,9 +225,25 @@ export const ShareDialog: React.FC<ShareDialogProps> = ({
             <PersonRow
               key={m.userId}
               person={m.userId === user.id ? user : asUser({ id: m.userId, email: m.email })}
-              note={m.userId === user.id ? 'You' : 'Can edit'}
+              note={m.userId === user.id ? (m.role === 'view' ? 'You · view only' : 'You') : m.role === 'view' ? 'View only' : 'Can edit'}
               action={
                 isOwner ? (
+                  <span className="flex items-center gap-1">
+                  <select
+                    aria-label={`Access for ${m.email}`}
+                    value={m.role}
+                    disabled={busy !== null}
+                    onChange={(e) => {
+                      const role = e.target.value as SpaceRole;
+                      void run(`role:${m.userId}`, () => onChangeRole(m.userId, role)).then((ok) => {
+                        if (ok) setMembers((list) => list.map((x) => (x.userId === m.userId ? { ...x, role } : x)));
+                      });
+                    }}
+                    className="h-8 rounded-lg px-2 text-[13px] font-semibold bg-ink-100 text-ink-700 dark:bg-ink-800 dark:text-ink-200 outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+                  >
+                    <option value="edit">Can edit</option>
+                    <option value="view">View only</option>
+                  </select>
                   <IconButton
                     label={`Remove ${m.email}`}
                     size="sm"
@@ -216,6 +256,7 @@ export const ShareDialog: React.FC<ShareDialogProps> = ({
                   >
                     {busy === `remove:${m.userId}` ? <Loader2 className="w-4 h-4 animate-spin" /> : <X className="w-4 h-4" />}
                   </IconButton>
+                  </span>
                 ) : undefined
               }
             />

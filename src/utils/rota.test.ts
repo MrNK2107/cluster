@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addDays, computeRota, isAccepted, newRota, toggleApproved, toggleAway, toggleDone, toggleVote } from './rota';
+import { addDays, computeRota, isAccepted, newRota, restartRota, toggleApproved, toggleAway, toggleEveryoneAway, toggleDone, toggleVote } from './rota';
 import { sanitizeDocument } from './validate';
 
 const M = ['Aman', 'Paul', 'Nanda', 'Venkat'];
@@ -98,5 +98,26 @@ describe('chore rota', () => {
       cards: [{ id: 'c', type: 'rota', rota: { ...r, away: { ...r.away, nonsense: ['Paul'], '2026-11-03': ['Nobody'] } } }],
     });
     expect(doc?.cards[0].rota).toEqual(r);
+  });
+
+  it('can restart the cycle today with someone else up first', () => {
+    // Cycle says Nanda today (third day), but Venkat should go.
+    const r = newRota(M, '2026-11-01');
+    expect(who(r, '2026-11-03')[2]).toBe('Nanda');
+    const re = restartRota(r, '2026-11-03', M, 'Venkat');
+    expect(who(re, '2026-11-06')).toEqual(['Venkat', 'Aman', 'Paul', 'Nanda']);
+  });
+
+  it('can restart with a new order', () => {
+    const re = restartRota(newRota(M, '2026-11-01'), '2026-11-03', ['Venkat', 'Nanda', 'Paul', 'Aman'], 'Venkat');
+    expect(who(re, '2026-11-06')).toEqual(['Venkat', 'Nanda', 'Paul', 'Aman']);
+  });
+
+  it('skips a day everyone is away and owes nothing', () => {
+    const r = toggleEveryoneAway(newRota(M, '2026-11-01'), '2026-11-02');
+    const s = computeRota(r, '2026-11-04');
+    expect(s.days.map((d) => d.person)).toEqual(['Aman', null, 'Paul', 'Nanda']);
+    expect(Object.values(s.owed).every((n) => n === 0)).toBe(true);
+    expect(toggleEveryoneAway(r, '2026-11-02').away).toEqual({});
   });
 });

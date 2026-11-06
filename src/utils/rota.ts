@@ -116,13 +116,13 @@ export function computeRota(rota: RotaData, through: string): RotaState {
         break;
       }
     }
-    turn += 1;
     if (cover) {
+      turn += 1;
       owed[scheduled] += 1;
       counts[cover] += 1;
       days.push({ date, person: cover, reason: 'cover', coveringFor: scheduled, away, done });
     } else {
-      // Nobody is in: no chore to cover and nothing owed.
+      // Nobody is in: a skipped day. Nothing is owed and the order doesn't move on.
       days.push({ date, person: null, reason: null, away, done });
     }
   }
@@ -199,4 +199,24 @@ export function isAccepted(rota: RotaData, date: string, peopleIds: string[]): b
   if (peopleIds.length <= 1) return true;
   const votes = rota.votes[date] ?? [];
   return peopleIds.every((id) => votes.includes(id));
+}
+
+/**
+ * Starts the cycle again from `today` in the given order, with `first` up
+ * today. Earlier days are no longer counted, so days owed are cleared; marks
+ * already made for today and later are kept.
+ */
+export function restartRota(rota: RotaData, today: string, order: string[], first: string): RotaData {
+  const i = order.indexOf(first);
+  const members = i > 0 ? [...order.slice(i), ...order.slice(0, i)] : order;
+  return { ...rota, members, startDate: today };
+}
+
+/** Marks everyone away (or clears it), which skips the day with nothing owed. */
+export function toggleEveryoneAway(rota: RotaData, date: string): RotaData {
+  const all = rota.members.every((m) => (rota.away[date] ?? []).includes(m));
+  const away = { ...rota.away };
+  if (all) delete away[date];
+  else away[date] = [...rota.members];
+  return { ...rota, away };
 }

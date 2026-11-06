@@ -1,4 +1,4 @@
-import type { BoardDocument, ShareInfo, SpacePerson } from '../types';
+import type { BoardDocument, ShareInfo, SpacePerson, SpaceRole } from '../types';
 import { describeError, getSupabaseClient } from './supabase';
 import { sanitizeDocument } from './validate';
 
@@ -26,6 +26,36 @@ export interface Person {
 export interface Member {
   userId: string;
   email: string;
+  role: SpaceRole;
+}
+
+/** The people who have a say: the owner and everyone who can edit. View-only people don't vote. */
+export const editorsOf = <T extends { role?: SpaceRole }>(people: T[]): T[] => people.filter((p) => p.role !== 'view');
+
+/** Whether the shared space lets this person change it. Spaces that aren't shared always do. */
+export const canEditDoc = (doc: { share?: ShareInfo }): boolean => doc.share?.canEdit !== false;
+
+const roleOf = (v: unknown): SpaceRole => (v === 'view' ? 'view' : 'edit');
+
+/** The database hasn't had the member-roles migration yet: everyone counts as an editor. */
+const isMissingRole = (error: { code?: string; message?: string }) =>
+  error.code === '42703' || /column .*role.* does not exist|could not find the 'role' column/i.test(error.message ?? '');
+
+type MemberRowOut = { space_id: string; user_id: string; email: string; role?: string };
+
+/** space_members rows, with their role when the database has roles. */
+async function selectMembers(
+  client: NonNullable<Awaited<ReturnType<typeof getSupabaseClient>>>,
+  spaceId?: string,
+): Promise<{ data: MemberRowOut[]; error?: { code?: string; message?: string } }> {
+  const run = async (cols: string) => {
+    const q = client.from('space_members').select(cols);
+    return spaceId ? await q.eq('space_id', spaceId) : await q;
+  };
+  let res = await run('space_id, user_id, email, role');
+  if (res.error && isMissingRole(res.error)) res = await run('space_id, user_id, email');
+  if (res.error) return { data: [], error: res.error };
+  return { data: (res.data ?? []) as unknown as MemberRowOut[] };
 }
 
 export const sharedDocId = (spaceId: string) => `space-${spaceId}`;
@@ -72,11 +102,11 @@ export async function fetchSharedSpaces(): Promise<{ data: SharedSpace[]; error?
     // Everyone in each space, so a rejection knows how many must agree.
     const membersBySpace = new Map<string, SpacePerson[]>();
     if (rows.length) {
-      const res = await client.from('space_members').select('space_id, user_id, email');
+      const res = await selectMembers(client);
       if (res.error) return { data: [], error: describeError(res.error) };
-      for (const m of (res.data ?? []) as { space_id: string; user_id: string; email: string }[]) {
+      for (const m of res.data) {
         const list = membersBySpace.get(m.space_id) ?? [];
-        list.push({ userId: m.user_id, email: m.email });
+        list.push({ userId: m.user_id, email: m.email, role: roleOf(m.role) });
         membersBySpace.set(m.space_id, list);
       }
     }
@@ -94,6 +124,7 @@ export async function fetchSharedSpaces(): Promise<{ data: SharedSpace[]; error?
           ownerId: row.owner_id,
           ownerEmail,
           isOwner: row.owner_id === me,
+          canEdit: row.owner_id === me || members.find((m) => m.userId === me)?.role !== 'view',
           people: [{ userId: row.owner_id, email: ownerEmail }, ...members],
         },
       });
@@ -213,19 +244,30 @@ export async function fetchMembers(spaceId: string): Promise<{ data: Member[]; e
   const client = await getSupabaseClient();
   if (!client) return { data: [] };
   try {
-    const { data, error } = await client.from('space_members').select('user_id, email').eq('space_id', spaceId);
-    if (error) return { data: [], error: describeError(error) };
-    return { data: ((data ?? []) as { user_id: string; email: string }[]).map((m) => ({ userId: m.user_id, email: m.email })) };
+    const res = await selectMembers(client, spaceId);
+    if (res.error) return { data: [], error: describeError(res.error) };
+    return { data: res.data.map((m) => ({ userId: m.user_id, email: m.email, role: roleOf(m.role) })) };
   } catch (err) {
     return { data: [], error: describeError(err) };
   }
 }
 
-export async function addMember(spaceId: string, person: Person): Promise<{ success: boolean; error?: string }> {
+export async function addMember(
+  spaceId: string,
+  person: Person,
+  role: SpaceRole = 'edit',
+): Promise<{ success: boolean; error?: string }> {
   const client = await getSupabaseClient();
   if (!client) return { success: false };
   try {
-    const { error } = await client.from('space_members').insert({ space_id: spaceId, user_id: person.id, email: person.email });
+    let { error } = await client
+      .from('space_members')
+      .insert({ space_id: spaceId, user_id: person.id, email: person.email, role });
+    // Without the roles migration only full access exists; never quietly give a viewer edit rights.
+    if (error && isMissingRole(error)) {
+      if (role === 'view') return { success: false, error: 'View-only access isn’t switched on for this app yet.' };
+      ({ error } = await client.from('space_members').insert({ space_id: spaceId, user_id: person.id, email: person.email }));
+    }
     if (error) {
       if (error.code === '23505') return { success: true }; // Already in the space.
       return { success: false, error: describeError(error) };
@@ -243,6 +285,21 @@ export async function removeMember(spaceId: string, userId: string): Promise<{ s
   try {
     const { error } = await client.from('space_members').delete().eq('space_id', spaceId).eq('user_id', userId);
     if (error) return { success: false, error: describeError(error) };
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: describeError(err) };
+  }
+}
+
+/** Owner only: lets someone edit, or limits them to viewing. */
+export async function setMemberRole(spaceId: string, userId: string, role: SpaceRole): Promise<{ success: boolean; error?: string }> {
+  const client = await getSupabaseClient();
+  if (!client) return { success: false };
+  try {
+    const { error } = await client.from('space_members').update({ role }).eq('space_id', spaceId).eq('user_id', userId);
+    if (error) {
+      return { success: false, error: isMissingRole(error) ? 'View-only access isn’t switched on for this app yet.' : describeError(error) };
+    }
     return { success: true };
   } catch (err) {
     return { success: false, error: describeError(err) };

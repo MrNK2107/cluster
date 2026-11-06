@@ -60,7 +60,7 @@ export function createFakeSupabase() {
 
   // --- Shared spaces ---------------------------------------------------------
   type SpaceRow = { id: string; owner_id: string; owner_email: string; doc: unknown; created_at: string };
-  type MemberRow = { space_id: string; user_id: string; email: string };
+  type MemberRow = { space_id: string; user_id: string; email: string; role?: 'edit' | 'view' };
   const spaces = new Map<string, SpaceRow>();
   const members: MemberRow[] = [];
   const users = new Map<string, { id: string; email: string; name: string | null; avatar_url: string | null }>();
@@ -69,6 +69,8 @@ export function createFakeSupabase() {
   const isMember = (sid: string) => members.some((m) => m.space_id === sid && m.user_id === me());
   const isOwnerOf = (sid: string) => spaces.get(sid)?.owner_id === me();
   const canSee = (sid: string) => isOwnerOf(sid) || isMember(sid);
+  /** The owner, or a member who was given edit access (supabase/migrations/*_member_roles.sql). */
+  const canEdit = (sid: string) => isOwnerOf(sid) || members.some((m) => m.space_id === sid && m.user_id === me() && m.role !== 'view');
 
   /**
    * The rules from supabase/migrations/*_protected_spaces.sql: a protected
@@ -83,7 +85,7 @@ export function createFakeSupabase() {
     if (isProtected(old) && !isProtected(next)) next.protected = true;
     if (uid === row.owner_id) return null;
     if (!isProtected(old) && isProtected(next)) delete next.protected;
-    const people = [row.owner_id, ...members.filter((m) => m.space_id === row.id).map((m) => m.user_id)];
+    const people = [row.owner_id, ...members.filter((m) => m.space_id === row.id && m.role !== 'view').map((m) => m.user_id)];
     const nextCards = next.cards ?? [];
     for (const card of old.cards ?? []) {
       if (nextCards.some((c) => c.id === card.id)) continue;
@@ -130,6 +132,12 @@ export function createFakeSupabase() {
           return { data: returning ? [pickCols(row, returning)] : null, error: null };
         }
         const visible = [...spaces.values()].filter((r) => canSee(r.id) && matches(r, filters));
+        // Like a row-level policy: rows you can't edit are simply not updated or deleted.
+        if (op === 'update' && payload.doc !== undefined) {
+          const editable = visible.filter((r) => canEdit(r.id));
+          visible.length = 0;
+          visible.push(...editable);
+        }
         if (op === 'select') return { data: visible.sort((a, b) => a.created_at.localeCompare(b.created_at)).map((r) => (cols === '*' ? structuredClone(r) : pickCols(r, cols))), error: null };
         if (op === 'update') {
           if (payload.doc === undefined) return { data: null, error: null };
@@ -157,7 +165,7 @@ export function createFakeSupabase() {
         const row = payload as unknown as MemberRow;
         if (!isOwnerOf(row.space_id) || row.user_id === uid) return { data: null, error: { message: 'new row violates row-level security policy', code: '42501' } };
         if (members.some((m) => m.space_id === row.space_id && m.user_id === row.user_id)) return { data: null, error: { message: 'duplicate key', code: '23505' } };
-        members.push({ space_id: row.space_id, user_id: row.user_id, email: row.email });
+        members.push({ space_id: row.space_id, user_id: row.user_id, email: row.email, role: row.role === 'view' ? 'view' : 'edit' });
         return { data: null, error: null };
       }
       const visible = members.filter((m) => canSee(m.space_id) && matches(m, filters));
@@ -166,6 +174,13 @@ export function createFakeSupabase() {
         visible
           .filter((m) => isOwnerOf(m.space_id) || m.user_id === uid)
           .forEach((m) => members.splice(members.indexOf(m), 1));
+        return { data: null, error: null };
+      }
+      if (op === 'update') {
+        // Only the owner changes a role, and nothing else about a membership.
+        for (const m of visible.filter((m) => isOwnerOf(m.space_id))) {
+          if (payload.role === 'edit' || payload.role === 'view') m.role = payload.role;
+        }
         return { data: null, error: null };
       }
       return { data: null, error: { message: 'unsupported', code: 'XX000' } };

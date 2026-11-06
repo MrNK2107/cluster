@@ -7,6 +7,7 @@ import type {
   CardType,
   CardColor,
   SpacePerson,
+  SpaceRole,
 } from './types';
 import {
   INITIAL_DOCUMENTS,
@@ -33,8 +34,11 @@ import {
   deleteSharedSpace,
   fetchSharedSpace,
   fetchSharedSpaces,
+  canEditDoc,
+  editorsOf,
   removeMember,
   saveSharedSpace,
+  setMemberRole,
   sharedDocId,
   sharedPayload,
   type Person,
@@ -326,7 +330,7 @@ export const App: React.FC = () => {
         }
         const theirs = sharedPayload(latest.doc);
         let toWrite = base && JSON.stringify(theirs) !== JSON.stringify(base) ? mergeDocs(base, doc, theirs) : doc;
-        const people = snapshot.documents.find((d) => d.share?.spaceId === spaceId)?.share?.people ?? [];
+        const people = editorsOf(snapshot.documents.find((d) => d.share?.spaceId === spaceId)?.share?.people ?? []);
         if (toWrite !== doc && people.length > 1) toWrite = dropAgreedCards(toWrite, people);
         let res = await saveSharedSpace(spaceId, toWrite);
         const myId = userIdRef.current;
@@ -507,7 +511,9 @@ export const App: React.FC = () => {
     setWorkspace((prev) => {
       const updatedDocs = prev.documents.map((doc) => {
         if (doc.id === activeDocument.id) {
-          return updater({ ...doc, updatedAt: Date.now() });
+          const next = updater({ ...doc, updatedAt: Date.now() });
+          // View-only people can look around (move the canvas) but nothing else changes.
+          return canEditDoc(doc) ? next : { ...doc, viewport: next.viewport };
         }
         return doc;
       });
@@ -597,7 +603,10 @@ export const App: React.FC = () => {
   });
 
   /** People who must agree before a card in the open space is deleted. */
-  const votingPeople = (doc: BoardDocument) => (doc.share && doc.share.people.length > 1 ? doc.share.people : null);
+  const votingPeople = (doc: BoardDocument) => {
+    const editors = doc.share ? editorsOf(doc.share.people) : [];
+    return doc.share && editors.length > 1 ? editors : null;
+  };
 
   /**
    * Deletes a card. In a space shared with others it instead proposes
@@ -794,14 +803,14 @@ export const App: React.FC = () => {
 
   const findDoc = (id: string | null) => (id ? workspaceRef.current.documents.find((d) => d.id === id) : undefined);
 
-  const handleAddPerson = async (person: Person): Promise<string | null> => {
+  const handleAddPerson = async (person: Person, role: SpaceRole = 'edit'): Promise<string | null> => {
     const doc = findDoc(shareDocId);
     if (!doc || !user) return 'This space no longer exists.';
     if (doc.share) {
-      const res = await addMember(doc.share.spaceId, person);
+      const res = await addMember(doc.share.spaceId, person, role);
       if (!res.success) return res.error ?? 'Could not add them. Please try again.';
       setPeople(doc.id, (people) =>
-        people.some((p) => p.userId === person.id) ? people : [...people, { userId: person.id, email: person.email }],
+        people.some((p) => p.userId === person.id) ? people : [...people, { userId: person.id, email: person.email, role }],
       );
       return null;
     }
@@ -809,7 +818,7 @@ export const App: React.FC = () => {
     const created = await createSharedSpace(doc);
     if (!created.spaceId) return created.error ?? 'Could not share this space. Please try again.';
     const spaceId = created.spaceId;
-    const added = await addMember(spaceId, person);
+    const added = await addMember(spaceId, person, role);
     const id = sharedDocId(spaceId);
     const ownerEmail = user.email ?? '';
     const share = {
@@ -817,7 +826,8 @@ export const App: React.FC = () => {
       ownerId: user.id,
       ownerEmail,
       isOwner: true,
-      people: [{ userId: user.id, email: ownerEmail }, ...(added.success ? [{ userId: person.id, email: person.email }] : [])],
+      canEdit: true,
+      people: [{ userId: user.id, email: ownerEmail }, ...(added.success ? [{ userId: person.id, email: person.email, role }] : [])],
     };
     lastSharedRef.current.set(spaceId, sharedPayload({ ...doc, id }));
     setWorkspace((prev) => ({
@@ -835,6 +845,15 @@ export const App: React.FC = () => {
     const res = await removeMember(doc.share.spaceId, memberId);
     if (!res.success) return res.error ?? 'Could not remove them. Please try again.';
     setPeople(doc.id, (people) => people.filter((p) => p.userId !== memberId));
+    return null;
+  };
+
+  const handleChangeRole = async (memberId: string, role: SpaceRole): Promise<string | null> => {
+    const doc = findDoc(shareDocId);
+    if (!doc?.share) return null;
+    const res = await setMemberRole(doc.share.spaceId, memberId, role);
+    if (!res.success) return res.error ?? 'Could not change their access. Please try again.';
+    setPeople(doc.id, (people) => people.map((p) => (p.userId === memberId ? { ...p, role } : p)));
     return null;
   };
 
@@ -928,6 +947,7 @@ export const App: React.FC = () => {
   }
 
   const openQuickAdd = (type: CardType, clusterId?: string | null) => {
+    if (!canEditDoc(activeDocument)) return;
     setQuickAddType(type);
     setQuickAddClusterId(clusterId ?? null);
     setQuickAddOpen(true);
@@ -986,9 +1006,19 @@ export const App: React.FC = () => {
         />
 
         <RotaPeopleContext.Provider
-          value={{ myId: user.id, people: activeDocument.share?.people ?? [], isOwner: activeDocument.share?.isOwner ?? true }}
+          value={{
+            myId: user.id,
+            people: editorsOf(activeDocument.share?.people ?? []),
+            isOwner: activeDocument.share?.isOwner ?? true,
+            canEdit: canEditDoc(activeDocument),
+          }}
         >
-        <main className="flex-1 w-full h-full relative overflow-hidden">
+        <main data-readonly={canEditDoc(activeDocument) ? undefined : ''} className="flex-1 w-full h-full relative overflow-hidden">
+          {!canEditDoc(activeDocument) && (
+            <div role="status" className="absolute top-3 left-1/2 -translate-x-1/2 z-30 max-w-[calc(100%-1.5rem)] px-4 py-2 rounded-full text-[13px] font-semibold bg-ink-900 text-white dark:bg-white dark:text-ink-950 float-shadow">
+              View only · {activeDocument.share?.ownerEmail || 'The owner'} can give you edit access
+            </div>
+          )}
           {viewMode === 'table' ? (
             <TableView
               document={activeDocument}
@@ -1031,7 +1061,7 @@ export const App: React.FC = () => {
                   votingPeople(activeDocument)
                     ? {
                         myId: user.id,
-                        people: activeDocument.share!.people.length,
+                        people: votingPeople(activeDocument)!.length,
                         onAgree: handleAgreeReject,
                         onKeep: handleKeepCard,
                         ...(ownsSharedSpace(activeDocument) ? { onDeleteNow: handleDeleteCardNow } : {}),
@@ -1040,7 +1070,7 @@ export const App: React.FC = () => {
                 }
                 onCreateAt={(type, x, y) => handleAddCardAt(type, x, y)}
               />
-              <CanvasDock onAddCard={handleAddCard} onAddCluster={handleAddCluster} />
+              {canEditDoc(activeDocument) && <CanvasDock onAddCard={handleAddCard} onAddCluster={handleAddCluster} />}
               <MiniMap
                 cards={activeDocument.cards}
                 clusters={activeDocument.clusters}
@@ -1135,6 +1165,7 @@ export const App: React.FC = () => {
           user={user}
           onClose={() => setShareDocId(null)}
           onAddPerson={handleAddPerson}
+          onChangeRole={handleChangeRole}
           onRemovePerson={handleRemovePerson}
           onStopSharing={handleStopSharing}
           onLeave={handleLeave}

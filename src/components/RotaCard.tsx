@@ -1,5 +1,5 @@
 import React, { useContext, useMemo, useState } from 'react';
-import { Check, ChevronDown, ThumbsUp, UserMinus } from 'lucide-react';
+import { ArrowDown, ArrowUp, Check, ChevronDown, ListOrdered, ThumbsUp, UserMinus } from 'lucide-react';
 import type { CardData, RotaData } from '../types';
 import {
   DEFAULT_MEMBERS,
@@ -7,11 +7,13 @@ import {
   dayLabel,
   isAccepted,
   newRota,
+  restartRota,
   rotaWindow,
   toDay,
   toggleApproved,
   toggleAway,
   toggleDone,
+  toggleEveryoneAway,
   toggleVote,
 } from '../utils/rota';
 import { RotaPeopleContext } from '../utils/rotaContext';
@@ -37,6 +39,8 @@ const DayRow: React.FC<{
   votes: number;
   voters: number;
   iVoted: boolean;
+  /** False for someone who can only view the space. */
+  canVote: boolean;
   isOwner: boolean;
   ownerApproved: boolean;
   onVote: () => void;
@@ -44,9 +48,10 @@ const DayRow: React.FC<{
   open: boolean;
   onToggleOpen: () => void;
   onAway: (member: string) => void;
+  onEveryoneAway: () => void;
   onDone: () => void;
   big: boolean;
-}> = ({ day, members, today, isToday, canClaim, accepted, votes, voters, iVoted, isOwner, ownerApproved, onVote, onApprove, open, onToggleOpen, onAway, onDone, big }) => {
+}> = ({ day, members, today, isToday, canClaim, accepted, votes, voters, iVoted, canVote, isOwner, ownerApproved, onVote, onApprove, open, onToggleOpen, onAway, onEveryoneAway, onDone, big }) => {
   const note = describe(day);
   return (
     <li className={cn('rounded-xl', isToday && 'bg-brand-600/[0.07] dark:bg-brand-400/10')}>
@@ -78,7 +83,7 @@ const DayRow: React.FC<{
                 accepted && 'text-ink-500 dark:text-ink-400',
               )}
             >
-              {day.person ?? 'Nobody in'}
+              {day.person ?? 'Skipped · everyone away'}
             </span>
           </div>
           {note && <div className="pl-[4.5rem] -mt-px text-[12px] text-amber-600 dark:text-amber-400 truncate">{note}</div>}
@@ -108,7 +113,7 @@ const DayRow: React.FC<{
               ? ownerApproved ? 'Accepted · owner approved' : 'Accepted'
               : voters > 1 ? `Waiting for approval · ${votes} of ${voters} agreed` : 'Waiting for approval'}
           </span>
-          {voters > 1 && (
+          {voters > 1 && canVote && (
             <button
               type="button"
               aria-pressed={iVoted}
@@ -162,6 +167,13 @@ const DayRow: React.FC<{
                 </button>
               );
             })}
+            <button
+              type="button"
+              onClick={onEveryoneAway}
+              className="h-8 px-3 rounded-full text-[13px] font-semibold text-ink-600 ring-1 ring-inset ring-dashed ring-ink-300 hover:bg-ink-50 dark:text-ink-300 dark:ring-ink-600 dark:hover:bg-ink-800"
+            >
+              {members.every((m) => day.away.includes(m)) ? 'Undo skip' : 'Everyone away · skip day'}
+            </button>
           </div>
         </div>
       )}
@@ -179,6 +191,7 @@ export const RotaBody: React.FC<{
   const rota: RotaData = useMemo(() => card.rota ?? newRota(DEFAULT_MEMBERS), [card.rota]);
   const today = toDay();
   const [openDay, setOpenDay] = useState<string | null>(null);
+  const [ordering, setOrdering] = useState(false);
 
   const me = useContext(RotaPeopleContext);
   const peopleIds = useMemo(() => (me?.people ?? []).map((p) => p.userId), [me]);
@@ -190,6 +203,14 @@ export const RotaBody: React.FC<{
   const { days, owed } = useMemo(() => rotaWindow(rota, from, UPCOMING + 1, today), [rota, from, today]);
   const owing = rota.members.filter((m) => owed[m] > 0);
   const save = (next: RotaData) => onUpdate({ rota: next });
+  const todayPerson = days.find((d) => d.date === today)?.person ?? null;
+  /** Moves someone in the order, keeping whoever is up today up today. */
+  const reorder = (from: number, to: number) => {
+    const order = [...rota.members];
+    const [moved] = order.splice(from, 1);
+    order.splice(to, 0, moved);
+    save(restartRota(rota, today, order, todayPerson ?? order[0]));
+  };
 
   return (
     <div className="-mx-1.5 select-none">
@@ -205,6 +226,7 @@ export const RotaBody: React.FC<{
             accepted={isAccepted(rota, day.date, peopleIds)}
             votes={(rota.votes[day.date] ?? []).filter((id) => peopleIds.includes(id)).length}
             voters={peopleIds.length}
+            canVote={me?.canEdit ?? true}
             iVoted={!!me && (rota.votes[day.date] ?? []).includes(me.myId)}
             isOwner={isOwner}
             ownerApproved={rota.approved[day.date] === true}
@@ -213,6 +235,7 @@ export const RotaBody: React.FC<{
             open={openDay === day.date}
             onToggleOpen={() => setOpenDay(openDay === day.date ? null : day.date)}
             onAway={(m) => save(toggleAway(rota, day.date, m))}
+            onEveryoneAway={() => save(toggleEveryoneAway(rota, day.date))}
             onDone={() => save(toggleDone(rota, day.date))}
             big={big}
           />
@@ -223,6 +246,58 @@ export const RotaBody: React.FC<{
           ? owing.map((m) => `${m} owes ${owed[m]} ${owed[m] === 1 ? 'day' : 'days'}`).join(' · ') + '. They take the next day they are in.'
           : 'Everyone is square. If someone is away, the next person covers and the one who was away pays it back.'}
       </p>
+
+      <div className="mt-1 px-1.5">
+        <button
+          type="button"
+          aria-expanded={ordering}
+          onClick={() => setOrdering((o) => !o)}
+          className="h-8 px-2 -ml-0.5 rounded-lg inline-flex items-center gap-1.5 text-[13px] font-semibold text-ink-500 hover:text-ink-800 hover:bg-ink-900/[0.05] dark:text-ink-400 dark:hover:text-ink-100 dark:hover:bg-white/10"
+        >
+          <ListOrdered className="w-4 h-4" /> Order &amp; who’s up today
+        </button>
+        {ordering && (
+          <div className="mt-1 rounded-xl p-2 bg-ink-900/[0.035] dark:bg-white/[0.04]">
+            <ul className="space-y-1">
+              {rota.members.map((m, i) => (
+                <li key={m} className="flex items-center gap-1.5">
+                  <span className="w-5 text-center text-[12px] font-bold text-ink-400 tabular-nums">{i + 1}</span>
+                  <span className="min-w-0 flex-1 truncate text-[14px] font-semibold text-ink-800 dark:text-ink-100">{m}</span>
+                  <button
+                    type="button"
+                    disabled={i === 0}
+                    aria-label={`Move ${m} up`}
+                    onClick={() => reorder(i, i - 1)}
+                    className="w-8 h-8 rounded-lg flex items-center justify-center text-ink-500 hover:bg-ink-900/[0.07] disabled:opacity-30 dark:hover:bg-white/10"
+                  >
+                    <ArrowUp className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    disabled={i === rota.members.length - 1}
+                    aria-label={`Move ${m} down`}
+                    onClick={() => reorder(i, i + 1)}
+                    className="w-8 h-8 rounded-lg flex items-center justify-center text-ink-500 hover:bg-ink-900/[0.07] disabled:opacity-30 dark:hover:bg-white/10"
+                  >
+                    <ArrowDown className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => save(restartRota(rota, today, rota.members, m))}
+                    disabled={todayPerson === m}
+                    className="h-8 px-2.5 rounded-lg text-[12px] font-semibold bg-brand-600 text-white hover:bg-brand-700 disabled:bg-ink-200 disabled:text-ink-500 dark:disabled:bg-ink-700 dark:disabled:text-ink-300"
+                  >
+                    {todayPerson === m ? 'Up today' : 'Start today'}
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-2 text-[12px] leading-snug text-ink-500 dark:text-ink-400">
+              Changing the order or who’s up restarts the cycle from today. Days owed before now are cleared.
+            </p>
+          </div>
+        )}
+      </div>
     </div>
   );
 };

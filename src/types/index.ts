@@ -132,13 +132,19 @@ export interface ShareInfo {
   ownerId: string;
   ownerEmail: string;
   isOwner: boolean;
+  /** False when this person was added as view only; missing means they can edit. */
+  canEdit?: boolean;
   /** Everyone with access, owner first. */
   people: SpacePerson[];
 }
 
+export type SpaceRole = 'edit' | 'view';
+
 export interface SpacePerson {
   userId: string;
   email: string;
+  /** What they may do; missing means edit. The owner always can. */
+  role?: SpaceRole;
 }
 
 export interface WorkspaceData {

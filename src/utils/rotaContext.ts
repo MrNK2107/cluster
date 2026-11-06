@@ -6,6 +6,8 @@ export interface RotaPeople {
   /** Everyone with access to the space; empty when it isn't shared. */
   people: { userId: string; email: string }[];
   isOwner: boolean;
+  /** False for someone who can only view the space. */
+  canEdit: boolean;
 }
 
 export const RotaPeopleContext = createContext<RotaPeople | null>(null);

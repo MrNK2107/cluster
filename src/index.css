@@ -207,3 +207,11 @@
 .scrollbar-none::-webkit-scrollbar {
   display: none;
 }
+
+/* A space the person can only view: cards can't be grabbed, typed in or ticked. Links still open. */
+[data-readonly] article {
+  pointer-events: none;
+}
+[data-readonly] article a {
+  pointer-events: auto;
+}
